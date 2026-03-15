@@ -21,6 +21,8 @@ This release intentionally excludes tests, visualization notebooks, experiment l
 - `scripts/<task>/train_*.sh`: direct launch scripts.
 - `scripts/<task>/submit_*.sh`: sweep submitters.
 - `scripts/<task>/sweep_params.yaml`: small portable example sweeps.
+- `scripts/pathfinding/make_pathfinding_dataset.py`: pathfinding dataset generator.
+- `scripts/variable_assignment/make_variable_assignment_dataset.py`: variable-assignment dataset generator.
 - `scripts/s5_retrieval/data_generation/make_s5_retrieval_dataset.py`: S5 retrieval dataset generator.
 
 ## Setup
@@ -46,6 +48,18 @@ Optional extras:
 
 ```bash
 python scripts/s5_retrieval/data_generation/make_s5_retrieval_dataset.py --help
+```
+
+Generate pathfinding data with:
+
+```bash
+python scripts/pathfinding/make_pathfinding_dataset.py --help
+```
+
+Generate variable-assignment data with:
+
+```bash
+python scripts/variable_assignment/make_variable_assignment_dataset.py --help
 ```
 
 ## Usage
