@@ -1,0 +1,9 @@
+runs:
+  - RUN_TAG: "medusa_smollm2_135m_4heads"
+    MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    RCOT_ENABLED: "False"
+    NUM_MEDUSA_HEADS: 4
+    MEDUSA_HEAD_NUM_LAYERS: 2
+    HIDDEN_LAYER_INDEX: -1
+    RUN_NAME_SUFFIX: "medusa_smollm2_135m_4heads"

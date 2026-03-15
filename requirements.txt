@@ -1,0 +1,16 @@
+accelerate
+datasets
+math-verify
+matplotlib
+numpy
+PyYAML
+sentencepiece
+torch
+tqdm
+transformers
+wandb
+
+# Optional performance / research extras:
+# flash-attn
+# liger-kernel
+# trl

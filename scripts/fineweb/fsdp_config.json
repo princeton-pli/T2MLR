@@ -1,0 +1,8 @@
+{
+    "fsdp_version": 2,
+    "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+    "transformer_layer_cls_to_wrap": "LlamaDecoderLayer",
+    "offload_params": false,
+    "reshard_after_forward": false,
+    "activation_checkpointing": false
+}

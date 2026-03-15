@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+.env
+.DS_Store
+wandb/
+outputs/
+data/
+data_cache/
+*.log
+*.out
+*.err
+scripts/*/slurm/

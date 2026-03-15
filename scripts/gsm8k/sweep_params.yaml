@@ -1,0 +1,14 @@
+runs:
+  - RUN_TAG: "gsm8k_rcot_off"
+    MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    RCOT_ENABLED: "False"
+    RUN_NAME: "gsm8k_rcot_off"
+
+  - RUN_TAG: "gsm8k_rcot_on_l4"
+    MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
+    RCOT_ENABLED: "True"
+    L_START: 4
+    RECURRENT_RESIDUAL_TO_RECURRENT_CACHE: "True"
+    RUN_NAME: "gsm8k_rcot_on_l4"
