@@ -3,7 +3,7 @@ import torch
 from typing import List, Dict, Any, Optional
 import numpy as np
 
-from components.all_arguments import RCOTArguments
+from components.all_arguments import T2MLRArguments
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def build_length_bin_tensor(features: List[Dict[str, Any]]) -> torch.Tensor:
     return out
 
 
-def align_rcot_steps_rear_padding(control_flow_ls):
+def align_t2mlr_steps_rear_padding(control_flow_ls):
 
     # Find the longest control flow
     longest_control_flow_index = int(np.argmax([len(x) for x in control_flow_ls]))
@@ -194,12 +194,12 @@ def _maybe_insert_pause_tokens(
     return features
 
 
-class rcot_collator:
+class t2mlr_collator:
 
     def __init__(
             self,
             tokenizer,
-            rcot_args: RCOTArguments,
+            t2mlr_args: T2MLRArguments,
             pad_prompt_left: bool = False,
             skip_labels_from_control_flow: bool = False,
             pause_token_id: Optional[int] = None,
@@ -212,7 +212,7 @@ class rcot_collator:
             pause_token_replace_control_flow_value: int = 2,
         ):
         self.tokenizer = tokenizer
-        self.rcot_args = rcot_args
+        self.t2mlr_args = t2mlr_args
         self.pad_prompt_left = pad_prompt_left
         self.skip_labels_from_control_flow = skip_labels_from_control_flow
         self.pause_token_id = pause_token_id
@@ -263,7 +263,7 @@ class rcot_collator:
         batch_size = len(binary_control_flows)
 
         # align the control flows
-        offset_dict, total_length = align_rcot_steps_rear_padding(binary_control_flows)
+        offset_dict, total_length = align_t2mlr_steps_rear_padding(binary_control_flows)
         input_ids = torch.zeros((batch_size, total_length), dtype=torch.long)
         labels = torch.full((batch_size, total_length), -100, dtype=torch.long)
         control_flows = torch.zeros((batch_size, total_length), dtype=torch.int)
@@ -287,7 +287,7 @@ class rcot_collator:
             'labels': labels,
             'attention_mask': attention_mask,
         }
-        if self.rcot_args.rcot_enabled:
+        if self.t2mlr_args.t2mlr_enabled:
             batch['control_flows'] = control_flows
         if lengths is not None:
             batch["length"] = lengths
@@ -295,11 +295,11 @@ class rcot_collator:
         return self.postprocess_batch(batch)
 
 
-class RCOTPaddingFreeCollator:
+class T2MLRPaddingFreeCollator:
     """
     Padding-free / packed collator for decoder-only training with FlashAttention varlen support.
 
-    This is inspired by HF's `DataCollatorWithFlattening`, but adapted to also carry RCOT `control_flow`.
+    This is inspired by HF's `DataCollatorWithFlattening`, but adapted to also carry T2MLR `control_flow`.
 
     It:
     - concatenates the entire mini-batch into a single sequence: shape [1, total_tokens]
@@ -380,7 +380,7 @@ class RCOTPaddingFreeCollator:
             if not ids:
                 continue
 
-            # Ensure the first token of each sample is non-recurrent to avoid RCOT cache leakage at boundaries.
+            # Ensure the first token of each sample is non-recurrent to avoid T2MLR cache leakage at boundaries.
             # (We also reset caches in-model when `position_ids==0`.)
             cf[0] = 1
 
@@ -420,7 +420,7 @@ class RCOTPaddingFreeCollator:
         return self.postprocess_batch(batch)
 
 
-class RCOTEvalCollator:
+class T2MLREvalCollator:
     """Evaluation-time collator mirroring the training collator structure."""
 
     def __init__(self, tokenizer):

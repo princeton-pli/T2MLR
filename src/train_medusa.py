@@ -39,15 +39,15 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from datasets import load_dataset, load_from_disk
 
-# Import RCOT components for checkpoint loading
+# Import T2MLR components for checkpoint loading
 try:
-    from rcot_wrapper import RCOTWrapper
-    from rcot_wrapper.rcot_config import RCOTConfig
-    RCOT_AVAILABLE = True
+    from t2mlr_wrapper import T2MLRWrapper
+    from t2mlr_wrapper.t2mlr_config import T2MLRConfig
+    T2MLR_AVAILABLE = True
 except ImportError:
-    RCOT_AVAILABLE = False
-    RCOTWrapper = None
-    RCOTConfig = None
+    T2MLR_AVAILABLE = False
+    T2MLRWrapper = None
+    T2MLRConfig = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,15 +76,15 @@ class MedusaModelArguments:
         default=-1,
         metadata={"help": "Layer index to extract hidden states from. Negative indices supported (e.g., -1 = last layer before LM head)."}
     )
-    num_medusa_heads: int = field(
+    num_ftp_heads: int = field(
         default=4,
         metadata={"help": "Number of Medusa heads to train (predicting tokens at offsets 2, 3, ..., num_heads+1)"}
     )
-    medusa_head_hidden_dim: Optional[int] = field(
+    ftp_head_hidden_dim: Optional[int] = field(
         default=None,
         metadata={"help": "Hidden dimension for Medusa head MLPs. If None, uses model hidden size."}
     )
-    medusa_head_num_layers: int = field(
+    ftp_head_num_layers: int = field(
         default=1,
         metadata={"help": "Number of layers in each Medusa head MLP (1 = linear projection)"}
     )
@@ -92,10 +92,10 @@ class MedusaModelArguments:
         default=True,
         metadata={"help": "Whether to use residual connection in Medusa heads (when num_layers > 1)"}
     )
-    rcot_enabled: Optional[bool] = field(
+    t2mlr_enabled: Optional[bool] = field(
         default=False,
-        metadata={"help": "Enable RCOT for the backbone model. When True, the backbone is loaded as an "
-                  "RCOTWrapper and control_flows are generated for the input data."}
+        metadata={"help": "Enable T2MLR for the backbone model. When True, the backbone is loaded as an "
+                  "T2MLRWrapper and control_flows are generated for the input data."}
     )
     control_flow_all_recurrent: Optional[bool] = field(
         default=False,
@@ -180,7 +180,7 @@ class MedusaDataArguments:
 class MedusaTrainingArguments(HFTrainingArguments):
     """Extended training arguments for Medusa."""
     project_name: str = field(
-        default="medusa-training",
+        default="ftp-training",
         metadata={"help": "W&B project name"}
     )
     head_loss_weights: Optional[str] = field(
@@ -330,15 +330,15 @@ class MedusaModelWrapper(nn.Module):
     def __init__(
         self,
         backbone: PreTrainedModel,
-        medusa_heads: MedusaHeads,
+        ftp_heads: MedusaHeads,
         hidden_layer_index: int = -1,
-        rcot_enabled: bool = False,
+        t2mlr_enabled: bool = False,
     ):
         super().__init__()
         self.backbone = backbone
-        self.medusa_heads = medusa_heads
+        self.ftp_heads = ftp_heads
         self.hidden_layer_index = hidden_layer_index
-        self.rcot_enabled = rcot_enabled
+        self.t2mlr_enabled = t2mlr_enabled
         
         # Freeze backbone
         for param in self.backbone.parameters():
@@ -346,7 +346,7 @@ class MedusaModelWrapper(nn.Module):
         self.backbone.eval()
         
         # Get the transformer layers for hook registration
-        # For RCOT models, the layers are accessed through the wrapper
+        # For T2MLR models, the layers are accessed through the wrapper
         self.layers = self._get_transformer_layers()
         self.num_layers = len(self.layers)
         
@@ -361,16 +361,16 @@ class MedusaModelWrapper(nn.Module):
         logger.info(f"  - Hidden size: {backbone.config.hidden_size}")
         logger.info(f"  - Num layers: {self.num_layers}")
         logger.info(f"  - Hidden layer index: {self.resolved_layer_index}")
-        logger.info(f"  - Num Medusa heads: {medusa_heads.num_heads}")
-        logger.info(f"  - RCOT enabled: {rcot_enabled}")
+        logger.info(f"  - Num Medusa heads: {ftp_heads.num_heads}")
+        logger.info(f"  - T2MLR enabled: {t2mlr_enabled}")
     
     def _get_transformer_layers(self) -> nn.ModuleList:
         """Extract transformer layer list from various model architectures."""
-        # For RCOT models, access layers through the wrapper's layers property
-        if self.rcot_enabled and hasattr(self.backbone, 'layers'):
+        # For T2MLR models, access layers through the wrapper's layers property
+        if self.t2mlr_enabled and hasattr(self.backbone, 'layers'):
             layers = self.backbone.layers
             if isinstance(layers, (nn.ModuleList, list)):
-                logger.info(f"Found transformer layers via RCOTWrapper.layers")
+                logger.info(f"Found transformer layers via T2MLRWrapper.layers")
                 if not isinstance(layers, nn.ModuleList):
                     layers = nn.ModuleList(layers)
                 return layers
@@ -383,10 +383,10 @@ class MedusaModelWrapper(nn.Module):
             ("transformer.layers", lambda m: m.transformer.layers),
         ]
         
-        # For RCOT models, also try accessing through the inner model
-        if self.rcot_enabled and hasattr(self.backbone, 'rcot_model'):
+        # For T2MLR models, also try accessing through the inner model
+        if self.t2mlr_enabled and hasattr(self.backbone, 't2mlr_model'):
             candidates = [
-                ("rcot_model.model.layers", lambda m: m.rcot_model.model.layers),
+                ("t2mlr_model.model.layers", lambda m: m.t2mlr_model.model.layers),
             ] + candidates
         
         for name, accessor in candidates:
@@ -418,7 +418,7 @@ class MedusaModelWrapper(nn.Module):
             input_ids: (batch, seq_len)
             attention_mask: (batch, seq_len)
             labels: (batch, seq_len) - used for computing per-head losses
-            control_flows: (batch, seq_len) - RCOT control flows (required when rcot_enabled)
+            control_flows: (batch, seq_len) - T2MLR control flows (required when t2mlr_enabled)
             
         Returns:
             Dict with:
@@ -439,12 +439,12 @@ class MedusaModelWrapper(nn.Module):
         target_layer = self.layers[self.resolved_layer_index]
         hook_handle = target_layer.register_forward_hook(capture_hook)
         
-        # When RCOT is enabled, temporarily enable batch_forward so the backbone
+        # When T2MLR is enabled, temporarily enable batch_forward so the backbone
         # uses batch_approximate_forward (parallel) instead of exact_sequence_recurrent_forward
         # (one-token-at-a-time). The latter is both extremely slow and incompatible with our
         # hook-based hidden state capture (the hook fires per-token and overwrites each time).
         original_batch_forward = None
-        if self.rcot_enabled and hasattr(self.backbone, 'config'):
+        if self.t2mlr_enabled and hasattr(self.backbone, 'config'):
             original_batch_forward = getattr(self.backbone.config, 'batch_forward', None)
             self.backbone.config.batch_forward = True
         
@@ -454,11 +454,11 @@ class MedusaModelWrapper(nn.Module):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
-            # Pass control_flows to the backbone when RCOT is enabled
-            if self.rcot_enabled and control_flows is not None:
+            # Pass control_flows to the backbone when T2MLR is enabled
+            if self.t2mlr_enabled and control_flows is not None:
                 backbone_kwargs["control_flows"] = control_flows
             else:
-                # Only pass these for non-RCOT backbones; RCOTWrapper's
+                # Only pass these for non-T2MLR backbones; T2MLRWrapper's
                 # batch_approximate_forward sets them internally
                 backbone_kwargs["output_hidden_states"] = False
                 backbone_kwargs["use_cache"] = False
@@ -481,7 +481,7 @@ class MedusaModelWrapper(nn.Module):
         hidden_states = captured_hidden["hidden_states"]
         
         # Forward through Medusa heads (these are trainable)
-        head_logits = self.medusa_heads(hidden_states)
+        head_logits = self.ftp_heads(hidden_states)
         
         # Compute losses if labels provided
         loss = None
@@ -633,7 +633,7 @@ class MedusaTrainer(Trainer):
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         """Override evaluate to compute per-head eval losses."""
         # Initialize accumulators
-        num_heads = self.model.medusa_heads.num_heads
+        num_heads = self.model.ftp_heads.num_heads
         self._eval_head_loss_sums = [0.0] * num_heads
         self._eval_head_loss_counts = [0] * num_heads
         
@@ -690,13 +690,13 @@ def preprocess_dataset(
     max_length: int,
     text_column: str,
     num_proc: int = 4,
-    rcot_enabled: bool = False,
+    t2mlr_enabled: bool = False,
     control_flow_all_recurrent: bool = False,
 ):
     """Tokenize and prepare dataset for language modeling.
     
-    When rcot_enabled is True, generates a control_flow field for each example
-    following the same convention as the main RCOT trainer:
+    When t2mlr_enabled is True, generates a control_flow field for each example
+    following the same convention as the main T2MLR trainer:
         - control_flow_all_recurrent=True:  all positions are 2 (recurrent)
         - control_flow_all_recurrent=False: first token is 1 (non-recurrent),
           rest are 2 (recurrent)
@@ -716,8 +716,8 @@ def preprocess_dataset(
         # For language modeling, labels = input_ids
         tokenized["labels"] = tokenized["input_ids"].copy()
         
-        # Generate control flows when RCOT is enabled
-        if rcot_enabled:
+        # Generate control flows when T2MLR is enabled
+        if t2mlr_enabled:
             control_flows = []
             for ids in tokenized["input_ids"]:
                 seq_len = len(ids)
@@ -759,17 +759,17 @@ def preprocess_dataset(
 class MedusaDataCollator:
     """Data collator that pads sequences for Medusa training."""
     
-    def __init__(self, tokenizer: PreTrainedTokenizer, max_length: int, rcot_enabled: bool = False):
+    def __init__(self, tokenizer: PreTrainedTokenizer, max_length: int, t2mlr_enabled: bool = False):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.pad_token_id = tokenizer.pad_token_id
-        self.rcot_enabled = rcot_enabled
+        self.t2mlr_enabled = t2mlr_enabled
     
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         batch_input_ids = []
         batch_labels = []
         batch_attention_mask = []
-        batch_control_flows = [] if self.rcot_enabled else None
+        batch_control_flows = [] if self.t2mlr_enabled else None
         
         max_len = min(
             max(len(f["input_ids"]) for f in features),
@@ -794,8 +794,8 @@ class MedusaDataCollator:
             batch_labels.append(labels)
             batch_attention_mask.append(attention_mask)
             
-            # Handle control flows for RCOT
-            if self.rcot_enabled and batch_control_flows is not None:
+            # Handle control flows for T2MLR
+            if self.t2mlr_enabled and batch_control_flows is not None:
                 cf = feature.get("control_flow", [1] * len(feature["input_ids"]))
                 cf = cf[:max_len]
                 # Pad control flows with 0 (non-recurrent) for padding positions
@@ -819,13 +819,13 @@ class MedusaDataCollator:
 # Model Loading Utilities
 # =============================================================================
 
-def _is_rcot_checkpoint(model_path: str) -> bool:
-    """Check if the given path is an RCOT checkpoint."""
-    if not RCOT_AVAILABLE:
+def _is_t2mlr_checkpoint(model_path: str) -> bool:
+    """Check if the given path is an T2MLR checkpoint."""
+    if not T2MLR_AVAILABLE:
         return False
     try:
-        rcot_cfg = RCOTConfig.from_pretrained(model_path)
-        return getattr(rcot_cfg, "model_type", "") == "rcot"
+        t2mlr_cfg = T2MLRConfig.from_pretrained(model_path)
+        return getattr(t2mlr_cfg, "model_type", "") == "t2mlr"
     except Exception:
         return False
 
@@ -834,44 +834,44 @@ def _load_backbone_model(
     model_name_or_path: str,
     attn_impl: str = "flash_attention_2",
     torch_dtype: torch.dtype = torch.bfloat16,
-    rcot_enabled: bool = False,
+    t2mlr_enabled: bool = False,
 ) -> PreTrainedModel:
     """
     Load a backbone model from a checkpoint path or HuggingFace model ID.
     
     Supports:
     - Standard HuggingFace models (e.g., meta-llama/Llama-3.2-1B)
-    - RCOT checkpoints (extracts base model, or keeps wrapper if rcot_enabled)
+    - T2MLR checkpoints (extracts base model, or keeps wrapper if t2mlr_enabled)
     
     Args:
         model_name_or_path: Path to checkpoint or HuggingFace model ID
         attn_impl: Attention implementation (flash_attention_2, sdpa, eager)
         torch_dtype: Data type for model weights
-        rcot_enabled: If True, keep the RCOTWrapper instead of extracting the base model
+        t2mlr_enabled: If True, keep the T2MLRWrapper instead of extracting the base model
         
     Returns:
-        The loaded backbone model (RCOTWrapper if rcot_enabled, else base model)
+        The loaded backbone model (T2MLRWrapper if t2mlr_enabled, else base model)
     """
-    # Check if this is an RCOT checkpoint
-    if _is_rcot_checkpoint(model_name_or_path):
-        logger.info(f"Detected RCOT checkpoint, loading with RCOTWrapper...")
-        rcot_model = RCOTWrapper.from_pretrained_with_rcot(
+    # Check if this is an T2MLR checkpoint
+    if _is_t2mlr_checkpoint(model_name_or_path):
+        logger.info(f"Detected T2MLR checkpoint, loading with T2MLRWrapper...")
+        t2mlr_model = T2MLRWrapper.from_pretrained_with_t2mlr(
             model_name_or_path,
             torch_dtype=torch_dtype,
             attn_impl=attn_impl,
         )
-        if rcot_enabled:
-            logger.info(f"RCOT enabled: keeping RCOTWrapper as backbone")
-            return rcot_model
-        # Extract the underlying base model from the RCOT wrapper
-        # The base model is stored as rcot_model.rcot_model
-        if hasattr(rcot_model, "rcot_model"):
-            backbone = rcot_model.rcot_model
-            logger.info(f"Extracted base model from RCOT wrapper: {type(backbone).__name__}")
+        if t2mlr_enabled:
+            logger.info(f"T2MLR enabled: keeping T2MLRWrapper as backbone")
+            return t2mlr_model
+        # Extract the underlying base model from the T2MLR wrapper
+        # The base model is stored as t2mlr_model.t2mlr_model
+        if hasattr(t2mlr_model, "t2mlr_model"):
+            backbone = t2mlr_model.t2mlr_model
+            logger.info(f"Extracted base model from T2MLR wrapper: {type(backbone).__name__}")
         else:
             # Fallback: use the wrapper itself (shouldn't happen normally)
-            logger.warning("Could not extract base model from RCOT wrapper, using wrapper directly")
-            backbone = rcot_model
+            logger.warning("Could not extract base model from T2MLR wrapper, using wrapper directly")
+            backbone = t2mlr_model
         return backbone
     
     # Try loading as a standard HuggingFace model
@@ -883,35 +883,35 @@ def _load_backbone_model(
         )
         logger.info(f"Loaded HuggingFace model: {type(backbone).__name__}")
         
-        if rcot_enabled:
-            if not RCOT_AVAILABLE:
-                raise RuntimeError("RCOT is enabled but rcot_wrapper is not available. Install rcot_wrapper first.")
-            logger.info("RCOT enabled: wrapping base model with RCOTWrapper")
-            from components.all_arguments import RCOTArguments
-            rcot_args = RCOTArguments()
-            rcot_model = RCOTWrapper.from_base_model(backbone, rcot_args)
-            return rcot_model
+        if t2mlr_enabled:
+            if not T2MLR_AVAILABLE:
+                raise RuntimeError("T2MLR is enabled but t2mlr_wrapper is not available. Install t2mlr_wrapper first.")
+            logger.info("T2MLR enabled: wrapping base model with T2MLRWrapper")
+            from components.all_arguments import T2MLRArguments
+            t2mlr_args = T2MLRArguments()
+            t2mlr_model = T2MLRWrapper.from_base_model(backbone, t2mlr_args)
+            return t2mlr_model
         
         return backbone
     except Exception as e:
         logger.warning(f"Standard loading failed: {e}")
         
-        # Last resort: try RCOT loading if available
-        if RCOT_AVAILABLE:
-            logger.info("Attempting RCOT loading as fallback...")
+        # Last resort: try T2MLR loading if available
+        if T2MLR_AVAILABLE:
+            logger.info("Attempting T2MLR loading as fallback...")
             try:
-                rcot_model = RCOTWrapper.from_pretrained_with_rcot(
+                t2mlr_model = T2MLRWrapper.from_pretrained_with_t2mlr(
                     model_name_or_path,
                     torch_dtype=torch_dtype,
                     attn_impl=attn_impl,
                 )
-                if rcot_enabled:
-                    return rcot_model
-                if hasattr(rcot_model, "rcot_model"):
-                    return rcot_model.rcot_model
-                return rcot_model
-            except Exception as rcot_e:
-                logger.error(f"RCOT loading also failed: {rcot_e}")
+                if t2mlr_enabled:
+                    return t2mlr_model
+                if hasattr(t2mlr_model, "t2mlr_model"):
+                    return t2mlr_model.t2mlr_model
+                return t2mlr_model
+            except Exception as t2mlr_e:
+                logger.error(f"T2MLR loading also failed: {t2mlr_e}")
         
         raise RuntimeError(
             f"Failed to load model from {model_name_or_path}. "
@@ -942,10 +942,10 @@ def main():
     logger.info("Medusa Training Configuration")
     logger.info("=" * 60)
     logger.info(f"Model: {model_args.model_name_or_path}")
-    logger.info(f"Num Medusa heads: {model_args.num_medusa_heads}")
+    logger.info(f"Num Medusa heads: {model_args.num_ftp_heads}")
     logger.info(f"Hidden layer index: {model_args.hidden_layer_index}")
     logger.info(f"Max length: {data_args.max_length}")
-    logger.info(f"RCOT enabled: {model_args.rcot_enabled}")
+    logger.info(f"T2MLR enabled: {model_args.t2mlr_enabled}")
     logger.info(f"Control flow all recurrent: {model_args.control_flow_all_recurrent}")
     logger.info("=" * 60)
     
@@ -967,7 +967,7 @@ def main():
         model_name_or_path=model_args.model_name_or_path,
         attn_impl=attn_impl,
         torch_dtype=torch.bfloat16,
-        rcot_enabled=model_args.rcot_enabled,
+        t2mlr_enabled=model_args.t2mlr_enabled,
     )
     
     hidden_size = backbone.config.hidden_size
@@ -976,26 +976,26 @@ def main():
     logger.info(f"Backbone loaded: hidden_size={hidden_size}, vocab_size={vocab_size}")
     
     # Create Medusa heads
-    medusa_heads = MedusaHeads(
+    ftp_heads = MedusaHeads(
         hidden_size=hidden_size,
         vocab_size=vocab_size,
-        num_heads=model_args.num_medusa_heads,
-        head_hidden_dim=model_args.medusa_head_hidden_dim,
-        num_layers=model_args.medusa_head_num_layers,
+        num_heads=model_args.num_ftp_heads,
+        head_hidden_dim=model_args.ftp_head_hidden_dim,
+        num_layers=model_args.ftp_head_num_layers,
         use_residual=model_args.use_residual_connection,
     )
     
     # Count parameters
-    total_params = sum(p.numel() for p in medusa_heads.parameters())
-    trainable_params = sum(p.numel() for p in medusa_heads.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in ftp_heads.parameters())
+    trainable_params = sum(p.numel() for p in ftp_heads.parameters() if p.requires_grad)
     logger.info(f"Medusa heads: {total_params:,} parameters ({trainable_params:,} trainable)")
     
     # Create wrapper model
     model = MedusaModelWrapper(
         backbone=backbone,
-        medusa_heads=medusa_heads,
+        ftp_heads=ftp_heads,
         hidden_layer_index=model_args.hidden_layer_index,
-        rcot_enabled=model_args.rcot_enabled,
+        t2mlr_enabled=model_args.t2mlr_enabled,
     )
     
     # Load datasets
@@ -1032,7 +1032,7 @@ def main():
                 tokenizer=tokenizer,
                 max_length=data_args.max_length,
                 text_column=data_args.text_column,
-                rcot_enabled=model_args.rcot_enabled,
+                t2mlr_enabled=model_args.t2mlr_enabled,
                 control_flow_all_recurrent=model_args.control_flow_all_recurrent,
             )
             logger.info(f"Tokenized {len(train_dataset)} training examples")
@@ -1084,7 +1084,7 @@ def main():
                 tokenizer=tokenizer,
                 max_length=data_args.max_length,
                 text_column=data_args.text_column,
-                rcot_enabled=model_args.rcot_enabled,
+                t2mlr_enabled=model_args.t2mlr_enabled,
                 control_flow_all_recurrent=model_args.control_flow_all_recurrent,
             )
             logger.info(f"Tokenized {len(eval_dataset)} evaluation examples")
@@ -1095,7 +1095,7 @@ def main():
                 eval_dataset.save_to_disk(data_args.eval_tokenized_cache)
     
     # Data collator
-    data_collator = MedusaDataCollator(tokenizer, data_args.max_length, rcot_enabled=model_args.rcot_enabled)
+    data_collator = MedusaDataCollator(tokenizer, data_args.max_length, t2mlr_enabled=model_args.t2mlr_enabled)
     
     # Parse head loss weights
     head_loss_weights = None
@@ -1129,7 +1129,7 @@ def main():
         metrics = trainer.evaluate()
         
         # Compute perplexity for each head
-        for i in range(model_args.num_medusa_heads):
+        for i in range(model_args.num_ftp_heads):
             if f"eval_head_{i}_loss" in metrics:
                 metrics[f"eval_head_{i}_perplexity"] = math.exp(metrics[f"eval_head_{i}_loss"])
         
@@ -1138,19 +1138,19 @@ def main():
     
     # Save Medusa heads separately for easy loading
     if training_args.do_train:
-        medusa_path = os.path.join(training_args.output_dir, "medusa_heads.pt")
+        ftp_path = os.path.join(training_args.output_dir, "ftp_heads.pt")
         torch.save({
-            "state_dict": medusa_heads.state_dict(),
+            "state_dict": ftp_heads.state_dict(),
             "config": {
                 "hidden_size": hidden_size,
                 "vocab_size": vocab_size,
-                "num_heads": model_args.num_medusa_heads,
-                "head_hidden_dim": model_args.medusa_head_hidden_dim,
-                "num_layers": model_args.medusa_head_num_layers,
+                "num_heads": model_args.num_ftp_heads,
+                "head_hidden_dim": model_args.ftp_head_hidden_dim,
+                "num_layers": model_args.ftp_head_num_layers,
                 "use_residual": model_args.use_residual_connection,
             },
-        }, medusa_path)
-        logger.info(f"Saved Medusa heads to: {medusa_path}")
+        }, ftp_path)
+        logger.info(f"Saved Medusa heads to: {ftp_path}")
     
     logger.info("Training complete!")
 

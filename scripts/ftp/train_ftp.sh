@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=medusa-train
+#SBATCH --job-name=ftp-train
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-gpu=8
@@ -7,10 +7,10 @@
 #SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
 #SBATCH --account=pli
-#SBATCH --partition=pli-c
+
 ##SBATCH --qos=pli-cp
-#SBATCH --output=scripts/medusa/slurm/medusa-train-%j.out
-#SBATCH --error=scripts/medusa/slurm/medusa-train-%j.err
+#SBATCH --output=scripts/ftp/slurm/ftp-train-%j.out
+#SBATCH --error=scripts/ftp/slurm/ftp-train-%j.err
 
 set -euo pipefail
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
@@ -42,9 +42,9 @@ MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-HuggingFaceTB/SmolLM2-360M}"
 TOKENIZER_NAME_OR_PATH="${TOKENIZER_NAME_OR_PATH:-$MODEL_NAME_OR_PATH}"
 ATTN_IMPL="${ATTN_IMPL:-flash_attention_2}"
 
-RCOT_ENABLED="${RCOT_ENABLED:-False}"
+T2MLR_ENABLED="${T2MLR_ENABLED:-False}"
 
-OUTPUT_BASE="${OUTPUT_BASE:-$REPO_ROOT/outputs/medusa}"
+OUTPUT_BASE="${OUTPUT_BASE:-$REPO_ROOT/outputs/ftp}"
 DATASET_SLUG="${DATASET_SLUG:-fineweb-edu}"
 MODEL_SLUG="${MODEL_SLUG:-SmolLM2-360M}"
 if [[ -z "${num_gpus:-}" ]]; then
@@ -158,9 +158,9 @@ fi
 # ============================================================================
 
 if [ "$num_gpus" -le 1 ]; then
-    LAUNCHER=("$PYTHON_BIN" "src/train_medusa.py")
+    LAUNCHER=("$PYTHON_BIN" "src/train_ftp.py")
 else
-    LAUNCHER=("$PYTHON_BIN" -m torch.distributed.run --nproc_per_node="$num_gpus" --master_port=${master_port} "src/train_medusa.py")
+    LAUNCHER=("$PYTHON_BIN" -m torch.distributed.run --nproc_per_node="$num_gpus" --master_port=${master_port} "src/train_ftp.py")
 fi
 
 PYTHON_COMMAND=(
@@ -171,8 +171,8 @@ PYTHON_COMMAND=(
     --model_name_or_path "$MODEL_NAME_OR_PATH"
     --tokenizer_name_or_path "$TOKENIZER_NAME_OR_PATH"
     --attn_impl "$ATTN_IMPL"
-    --num_medusa_heads "$NUM_MEDUSA_HEADS"
-    --medusa_head_num_layers "$MEDUSA_HEAD_NUM_LAYERS"
+    --num_ftp_heads "$NUM_MEDUSA_HEADS"
+    --ftp_head_num_layers "$MEDUSA_HEAD_NUM_LAYERS"
     --use_residual_connection "$USE_RESIDUAL_CONNECTION"
     --hidden_layer_index "$HIDDEN_LAYER_INDEX"
     # Data args
@@ -207,22 +207,22 @@ PYTHON_COMMAND=(
     --save_total_limit 2
     --seed "$SEED"
     --bf16 True
-    --project_name medusa_training
+    --project_name ftp_training
     --disable_tqdm True
     --report_to wandb
     --train_tokenized_cache "$train_tokenized_cache"
     --eval_tokenized_cache "$eval_tokenized_cache"
-    --rcot_enabled "$RCOT_ENABLED"
+    --t2mlr_enabled "$T2MLR_ENABLED"
 )
 
 # # Bool flags must be passed as --flag / --no_flag (HfArgumentParser uses BoolOptionalAction)
-# case "${RCOT_ENABLED}" in
-#   True|true|1) PYTHON_COMMAND+=(--rcot_enabled) ;;
-#   *)           PYTHON_COMMAND+=(--no_rcot_enabled) ;;
+# case "${T2MLR_ENABLED}" in
+#   True|true|1) PYTHON_COMMAND+=(--t2mlr_enabled) ;;
+#   *)           PYTHON_COMMAND+=(--no_t2mlr_enabled) ;;
 # esac
 
 # Optional arguments
-[[ -n "$MEDUSA_HEAD_HIDDEN_DIM" ]] && PYTHON_COMMAND+=(--medusa_head_hidden_dim "$MEDUSA_HEAD_HIDDEN_DIM")
+[[ -n "$MEDUSA_HEAD_HIDDEN_DIM" ]] && PYTHON_COMMAND+=(--ftp_head_hidden_dim "$MEDUSA_HEAD_HIDDEN_DIM")
 [[ -n "$HEAD_LOSS_WEIGHTS" ]] && PYTHON_COMMAND+=(--head_loss_weights "$HEAD_LOSS_WEIGHTS")
 
 echo "============================================================================"

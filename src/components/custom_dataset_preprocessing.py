@@ -49,7 +49,7 @@ class CustomDatasetPreprocessor:
     """
     Base class for custom dataset preprocessing/formatting.
 
-    Patterned after `rcot_wrapper/rcot_gate_zoo.py`:
+    Patterned after `t2mlr_wrapper/t2mlr_gate_zoo.py`:
     - registry-driven construction
     - optional config-key filtering
     - `apply()` performs dataset -> dataset mapping

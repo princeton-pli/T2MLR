@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=s5-retrieval-rcot
+#SBATCH --job-name=s5-retrieval-t2mlr
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=32G
 #SBATCH --gres=gpu:1
 #SBATCH --time=23:59:00
-#SBATCH --partition=pli-c
+
 #SBATCH --output=scripts/s5_retrieval/slurm/s5-retrieval-%j.out
 #SBATCH --error=scripts/s5_retrieval/slurm/s5-retrieval-%j.err
 
@@ -124,12 +124,12 @@ EVAL_DATA_PATH="${EVAL_DATA_PATH:-$DATA_JSON_DIR/test.jsonl}"
 DISABLE_POSITIONAL_ENCODING="${DISABLE_POSITIONAL_ENCODING:-True}"
 
 # ============================================================================
-# RCOT FIXED PARAMETERS
+# T2MLR FIXED PARAMETERS
 # ============================================================================
 
 CONNECTION_DETACH="${CONNECTION_DETACH:-False}"
-RCOT_ENABLED="${RCOT_ENABLED:-True}"
-RCOT_MIXING_MODULE_NAME="${RCOT_MIXING_MODULE_NAME:-gated}"
+T2MLR_ENABLED="${T2MLR_ENABLED:-True}"
+T2MLR_MIXING_MODULE_NAME="${T2MLR_MIXING_MODULE_NAME:-gated}"
 GATE_PROJ_TYPE="${GATE_PROJ_TYPE:-linear}"
 GATE_MLP_HIDDEN_DIM="${GATE_MLP_HIDDEN_DIM:-}"
 GATE_MLP_NUM_LAYERS="${GATE_MLP_NUM_LAYERS:-2}"
@@ -165,7 +165,7 @@ PROJECTION_TAG=$([[ "$PROJECTION_BOOL" == "True" ]] && { [[ "$PROJECTION_DIM_CHO
 L_END=$((-L_START - 1))
 WINDOW_TAG="l${L_START}_to_${L_END}"
 
-RCOT_TAG=$([[ "$RCOT_ENABLED" == "True" ]] && echo "rcot_on" || echo "rcot_off")
+T2MLR_TAG=$([[ "$T2MLR_ENABLED" == "True" ]] && echo "t2mlr_on" || echo "t2mlr_off")
 RUN_NAME_BASE_DEFAULT="s5_retrieval"
 RUN_NAME_BASE="${RUN_NAME_BASE:-$RUN_NAME_BASE_DEFAULT}"
 RUN_NAME_SUFFIX="${RUN_NAME_SUFFIX:-}"
@@ -178,7 +178,7 @@ OUTPUT_DIR="$OUTPUT_BASE/$RUN_NAME"
 mkdir -p "$OUTPUT_DIR"
 
 # ============================================================================
-# OPTIONAL RCOT INITIALIZATION DEFAULTS
+# OPTIONAL T2MLR INITIALIZATION DEFAULTS
 # ============================================================================
 
 if [[ -z "$RECURRENT_GATE_INIT" ]]; then
@@ -244,12 +244,12 @@ PYTHON_COMMAND=(
     --save_steps "$SAVE_STEPS"
     --seed "$SEED"
     --bf16 True
-    --project_name rcot_s5_retrieval
+    --project_name t2mlr_s5_retrieval
     --disable_tqdm False
     --save_only_model False
     --concat_response_to_input False
-    --rcot_enabled "$RCOT_ENABLED"
-    --recurrent_mixing_module_name "$RCOT_MIXING_MODULE_NAME"
+    --t2mlr_enabled "$T2MLR_ENABLED"
+    --recurrent_mixing_module_name "$T2MLR_MIXING_MODULE_NAME"
     --l_start "$L_START"
     --l_end "$L_END"
     --recurrent_weight "$RECURRENT_WEIGHT"
@@ -304,9 +304,9 @@ if [[ "$model_key" == "rnnlm" || "$model_key" == "lstm" || "$model_key" == "gru"
     PYTHON_COMMAND+=(--rnn_hidden_size "$RNN_HIDDEN_SIZE")
     PYTHON_COMMAND+=(--rnn_num_layers "$RNN_NUM_LAYERS")
     PYTHON_COMMAND+=(--rnn_dropout "$RNN_DROPOUT")
-    # RNN doesn't support RCOT
-    PYTHON_COMMAND=($(printf '%s\n' "${PYTHON_COMMAND[@]}" | grep -v "^--rcot_enabled" | grep -v "^--recurrent_" | grep -v "^--use_recurrent_" | grep -v "^--l_start" | grep -v "^--l_end" | grep -v "^--use_learnable_gate" | grep -v "^--gate_" | grep -v "^--log_gate_activity" | grep -v "^--control_flow_all_recurrent" | grep -v "^--connection_detach" | grep -v "^--capture_gate_trace" | grep -v "^--batch_forward" | grep -v "^--batch_backward"))
-    PYTHON_COMMAND+=(--rcot_enabled False)
+    # RNN doesn't support T2MLR
+    PYTHON_COMMAND=($(printf '%s\n' "${PYTHON_COMMAND[@]}" | grep -v "^--t2mlr_enabled" | grep -v "^--recurrent_" | grep -v "^--use_recurrent_" | grep -v "^--l_start" | grep -v "^--l_end" | grep -v "^--use_learnable_gate" | grep -v "^--gate_" | grep -v "^--log_gate_activity" | grep -v "^--control_flow_all_recurrent" | grep -v "^--connection_detach" | grep -v "^--capture_gate_trace" | grep -v "^--batch_forward" | grep -v "^--batch_backward"))
+    PYTHON_COMMAND+=(--t2mlr_enabled False)
     PYTHON_COMMAND+=(--batch_forward False)
     PYTHON_COMMAND+=(--torch_compile False)
 fi
@@ -324,7 +324,7 @@ echo "[INFO] S5 Retrieval Training"
 echo "============================================================================"
 echo "[INFO] Run name: $RUN_NAME"
 echo "[INFO] Model: $MODEL_NAME_OR_PATH"
-echo "[INFO] RCOT: $RCOT_ENABLED (l_start=$L_START, l_end=$L_END)"
+echo "[INFO] T2MLR: $T2MLR_ENABLED (l_start=$L_START, l_end=$L_END)"
 echo "[INFO] Output: $OUTPUT_DIR"
 echo "============================================================================"
 

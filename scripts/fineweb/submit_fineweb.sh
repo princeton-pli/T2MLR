@@ -12,7 +12,7 @@ SWEEP="${SWEEP:-1}"
 SUBMIT_TRAIN="${SUBMIT_TRAIN:-1}"
 LOCAL_RUN="${LOCAL_RUN:-0}"
 SBATCH_ARGS_BASE="${SBATCH_ARGS_BASE:-${SBATCH_ARGS:-}}"
-SFT_RUN_NAME_BASE="${SFT_RUN_NAME_BASE:-${EXP_NAME}_rcot}"
+SFT_RUN_NAME_BASE="${SFT_RUN_NAME_BASE:-${EXP_NAME}_t2mlr}"
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/scripts/${EXP_NAME}/slurm}"
 TRAIN_SCRIPT="${TRAIN_SCRIPT:-$REPO_ROOT/scripts/${EXP_NAME}/train_fineweb.sh}"
 SWEEP_PARAMS_YAML="${SWEEP_PARAMS_YAML:-$REPO_ROOT/scripts/${EXP_NAME}/sweep_params.yaml}"
@@ -94,7 +94,7 @@ submit_run() {
     fi
 
     train_job="$(sbatch --export=ALL --parsable \
-      --job-name="rcot_fwe_${run_tag}" \
+      --job-name="t2mlr_fwe_${run_tag}" \
       --output="$LOG_DIR/${run_tag}/train-%j.out" \
       "${extra_args[@]}" \
       "$TRAIN_SCRIPT")"

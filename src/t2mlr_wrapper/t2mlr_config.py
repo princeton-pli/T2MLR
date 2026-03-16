@@ -1,5 +1,5 @@
 """
-RCOT Configuration class for PreTrainedModel integration.
+T2MLR Configuration class for PreTrainedModel integration.
 """
 
 import json
@@ -10,9 +10,9 @@ from transformers import PretrainedConfig
 
 
 @dataclass
-class RCOTSettings:
-    # Core RCOT settings
-    rcot_enabled: bool = True
+class T2MLRSettings:
+    # Core T2MLR settings
+    t2mlr_enabled: bool = True
     l_start: int = 0
     l_end: int = -1
 
@@ -113,41 +113,41 @@ class RCOTSettings:
     bfa_memory_efficient_cache: bool = False
 
 
-class RCOTConfig(PretrainedConfig):
+class T2MLRConfig(PretrainedConfig):
     """
-    Configuration class for RCOT (Recurrent Chain-of-Thought) models.
+    Configuration class for T2MLR (Recurrent Chain-of-Thought) models.
     
-    This class stores configuration for the RCOT wrapper, which adds recurrent
+    This class stores configuration for the T2MLR wrapper, which adds recurrent
     connections between transformer layers.
     """
 
-    # IMPORTANT: this must be a stable, RCOT-specific identifier.
+    # IMPORTANT: this must be a stable, T2MLR-specific identifier.
     # Older versions incorrectly used the wrapped base model type here, which breaks
     # checkpoint detection and can cause AutoModel loading failures.
-    model_type = "rcot"
+    model_type = "t2mlr"
     
     def __init__(
         self,
         base_config: Optional[dict] = None,
         base_model_type: Optional[str] = None,
-        rcot_settings: Optional[Union[RCOTSettings, dict]] = None,
+        t2mlr_settings: Optional[Union[T2MLRSettings, dict]] = None,
         **kwargs
     ):
         """
-        Initialize RCOT configuration.
+        Initialize T2MLR configuration.
         
         Args:
             base_config: Configuration dictionary of the wrapped base model
             base_model_type: Model type of the base model (e.g., "llama", "gpt2")
-            rcot_settings: RCOTSettings or dict; values override defaults
-            **kwargs: Additional RCOT-specific parameters or PretrainedConfig kwargs
+            t2mlr_settings: T2MLRSettings or dict; values override defaults
+            **kwargs: Additional T2MLR-specific parameters or PretrainedConfig kwargs
         """
-        rcot_overrides = {
+        t2mlr_overrides = {
             key: kwargs.pop(key)
             for key in list(kwargs.keys())
-            if key in RCOTSettings.__dataclass_fields__
+            if key in T2MLRSettings.__dataclass_fields__
         }
-        rcot_values = self._build_rcot_settings(rcot_settings, rcot_overrides)
+        t2mlr_values = self._build_t2mlr_settings(t2mlr_settings, t2mlr_overrides)
 
         super().__init__(**kwargs)
         self.base_config = base_config
@@ -158,18 +158,18 @@ class RCOTConfig(PretrainedConfig):
             except Exception:
                 base_model_type = None
         self.base_model_type = base_model_type
-        for key, value in rcot_values.items():
+        for key, value in t2mlr_values.items():
             setattr(self, key, value)
 
     @classmethod
-    def from_base_config(cls, base_config: PretrainedConfig, rcot_args=None, **kwargs):
+    def from_base_config(cls, base_config: PretrainedConfig, t2mlr_args=None, **kwargs):
         """
-        Create RCOTConfig from a base model config.
+        Create T2MLRConfig from a base model config.
         
         Args:
             base_config: Configuration of the base model
-            rcot_args: RCOTArguments dataclass instance
-            **kwargs: Additional RCOT-specific parameters
+            t2mlr_args: T2MLRArguments dataclass instance
+            **kwargs: Additional T2MLR-specific parameters
         """
         # Convert base config to dict for storage
         base_config_dict = base_config.to_dict()
@@ -179,10 +179,10 @@ class RCOTConfig(PretrainedConfig):
             "base_model_type": base_config.model_type,
         }
         
-        rcot_kwargs = cls._rcot_kwargs_from_args(rcot_args)
+        t2mlr_kwargs = cls._t2mlr_kwargs_from_args(t2mlr_args)
         config_kwargs.update(kwargs)
         
-        return cls(rcot_settings=rcot_kwargs, **config_kwargs)
+        return cls(t2mlr_settings=t2mlr_kwargs, **config_kwargs)
     
     def to_dict(self):
         """
@@ -192,10 +192,10 @@ class RCOTConfig(PretrainedConfig):
         return output
     
     @staticmethod
-    def _build_rcot_settings(rcot_settings=None, overrides=None):
-        data = asdict(RCOTSettings())
-        if rcot_settings is not None:
-            data.update(asdict(rcot_settings) if isinstance(rcot_settings, RCOTSettings) else dict(rcot_settings))
+    def _build_t2mlr_settings(t2mlr_settings=None, overrides=None):
+        data = asdict(T2MLRSettings())
+        if t2mlr_settings is not None:
+            data.update(asdict(t2mlr_settings) if isinstance(t2mlr_settings, T2MLRSettings) else dict(t2mlr_settings))
         if overrides:
             data.update(overrides)
 
@@ -207,11 +207,11 @@ class RCOTConfig(PretrainedConfig):
         return data
 
     @classmethod
-    def _rcot_kwargs_from_args(cls, rcot_args):
-        if rcot_args is None:
+    def _t2mlr_kwargs_from_args(cls, t2mlr_args):
+        if t2mlr_args is None:
             return {}
-        fields = RCOTSettings.__dataclass_fields__.keys()
-        out = {name: getattr(rcot_args, name) for name in fields if hasattr(rcot_args, name)}
+        fields = T2MLRSettings.__dataclass_fields__.keys()
+        out = {name: getattr(t2mlr_args, name) for name in fields if hasattr(t2mlr_args, name)}
         
         # If recurrent_gate_init is None, keep it as None (allows random bias init)
         # Only default if it's truly missing (not explicitly set to None)
@@ -260,7 +260,7 @@ class RCOTConfig(PretrainedConfig):
     
     def __getattr__(self, name):
         """
-        Delegate attribute access to base_config if attribute not found in RCOT config.
+        Delegate attribute access to base_config if attribute not found in T2MLR config.
         This allows the config to expose base model attributes like num_hidden_layers.
         """
         try:

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=fineweb-rcot
+#SBATCH --job-name=fineweb-t2mlr
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=50G
 #SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
-#SBATCH --partition=pli-c
+
 #SBATCH --qos=pli-cp
-#SBATCH --output=scripts/fineweb/slurm/fineweb-rcot-%j.out
+#SBATCH --output=scripts/fineweb/slurm/fineweb-t2mlr-%j.out
 
 set -euo pipefail
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
@@ -134,11 +134,11 @@ NUM_GENERATIONS_PER_SAMPLE="${NUM_GENERATIONS_PER_SAMPLE:-1}"
 PASS_AT_K=(${PASS_AT_K:-1})
 
 # ============================================================================
-# RCOT FIXED PARAMETERS
+# T2MLR FIXED PARAMETERS
 # ============================================================================
 
-RCOT_ENABLED="${RCOT_ENABLED:-True}"
-RCOT_MIXING_MODULE_NAME="${RCOT_MIXING_MODULE_NAME:-gated}"
+T2MLR_ENABLED="${T2MLR_ENABLED:-True}"
+T2MLR_MIXING_MODULE_NAME="${T2MLR_MIXING_MODULE_NAME:-gated}"
 GATE_PROJ_TYPE="${GATE_PROJ_TYPE:-linear}"
 GATE_MLP_HIDDEN_DIM="${GATE_MLP_HIDDEN_DIM:-}"
 GATE_MLP_NUM_LAYERS="${GATE_MLP_NUM_LAYERS:-2}"
@@ -158,7 +158,7 @@ RECURRENT_STATE_MLP_ACTIVATION="${RECURRENT_STATE_MLP_ACTIVATION:-gelu}"
 RECURRENT_STATE_MLP_DROPOUT="${RECURRENT_STATE_MLP_DROPOUT:-0.0}"
 
 # ============================================================================
-# RCOT SWEEP PARAMETERS (from environment)
+# T2MLR SWEEP PARAMETERS (from environment)
 # ============================================================================
 
 USE_PROJECTION="${USE_PROJECTION:-on}"
@@ -184,8 +184,8 @@ L_END=$((-L_START - 1))
 WINDOW_TAG="l${L_START}_to_${L_END}"
 CACHE_RESIDUAL_TAG=$([[ "$RECURRENT_RESIDUAL_TO_RECURRENT_CACHE" == "True" ]] && echo "cache_residual_on" || echo "cache_residual_off")
 
-RCOT_TAG=$([[ "$RCOT_ENABLED" == "True" ]] && echo "rcot_on" || echo "rcot_off")
-# RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${BATCH_FORWARD_TAG}_${RCOT_TAG}_${WINDOW_TAG}_${PROJECTION_TAG}_${GATE_TAG}_${WEIGHT_TAG}_bfad${BATCH_FORWARD_APPROXIMATE_DEPTH}_bbad${BATCH_BACKWARD_APPROXIMATE_DEPTH}_${CACHE_RESIDUAL_TAG}"
+T2MLR_TAG=$([[ "$T2MLR_ENABLED" == "True" ]] && echo "t2mlr_on" || echo "t2mlr_off")
+# RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${BATCH_FORWARD_TAG}_${T2MLR_TAG}_${WINDOW_TAG}_${PROJECTION_TAG}_${GATE_TAG}_${WEIGHT_TAG}_bfad${BATCH_FORWARD_APPROXIMATE_DEPTH}_bbad${BATCH_BACKWARD_APPROXIMATE_DEPTH}_${CACHE_RESIDUAL_TAG}"
 # if [[ -n "$RUN_NAME_SUFFIX" ]]; then
 #     RUN_NAME="${RUN_NAME}_${RUN_NAME_SUFFIX}"
 # fi
@@ -273,11 +273,11 @@ PYTHON_COMMAND=(
     --bf16 True
     --padding_free False
     --padding_free_return_flash_attn_kwargs False
-    --project_name rcot_fineweb
+    --project_name t2mlr_fineweb
     --disable_tqdm True
     --save_only_model False
-    --rcot_enabled "$RCOT_ENABLED"
-    --recurrent_mixing_module_name "$RCOT_MIXING_MODULE_NAME"
+    --t2mlr_enabled "$T2MLR_ENABLED"
+    --recurrent_mixing_module_name "$T2MLR_MIXING_MODULE_NAME"
     --l_start "$L_START"
     --l_end "$L_END"
     --recurrent_weight "$RECURRENT_WEIGHT"
@@ -320,11 +320,11 @@ PYTHON_COMMAND+=(--pass_at_k "${PASS_AT_K[@]}")
 [[ "$PROJECTION_BOOL" == "True" && "$PROJECTION_DIM_CHOICE" != "auto" ]] && PYTHON_COMMAND+=(--recurrent_projection_dim "$PROJECTION_DIM_CHOICE")
 
 echo "============================================================================"
-echo "[INFO] FineWeb RCOT Training"
+echo "[INFO] FineWeb T2MLR Training"
 echo "============================================================================"
 echo "[INFO] Run name: $RUN_NAME"
 echo "[INFO] Model: $MODEL_NAME_OR_PATH"
-echo "[INFO] RCOT: $RCOT_ENABLED (l_start=$L_START, l_end=$L_END)"
+echo "[INFO] T2MLR: $T2MLR_ENABLED (l_start=$L_START, l_end=$L_END)"
 echo "[INFO] Output: $OUTPUT_DIR"
 echo "============================================================================"
 

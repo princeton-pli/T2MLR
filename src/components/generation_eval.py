@@ -33,12 +33,12 @@ except ImportError:
     HAS_WANDB = False
     _wandb_module = None
 
-from rcot_wrapper.rcot_wrapper import RCOTWrapper
-from rcot_wrapper.model_io_utils import (
-    load_rcot_config_with_fallback,
+from t2mlr_wrapper.t2mlr_wrapper import T2MLRWrapper
+from t2mlr_wrapper.model_io_utils import (
+    load_t2mlr_config_with_fallback,
 )
-from components.all_arguments import GenerationEvalArguments, RCOTArguments, TrainingArguments, ModelArguments
-from rcot_wrapper.inference_wrapper import patch_model
+from components.all_arguments import GenerationEvalArguments, T2MLRArguments, TrainingArguments, ModelArguments
+from t2mlr_wrapper.inference_wrapper import patch_model
 
 import modeling  # noqa: F401
 
@@ -141,7 +141,7 @@ def _load_inference_model(
     """Load the saved model from disk for generation evaluation.
 
     Supports both:
-    - RCOT checkpoints (config.json is RCOTConfig; loads RCOTWrapper + base model)
+    - T2MLR checkpoints (config.json is T2MLRConfig; loads T2MLRWrapper + base model)
     - Standard HF checkpoints (config.json is a base model config; loads AutoModelForCausalLM)
     """
     model_root = model_args.model_name_or_path
@@ -156,17 +156,17 @@ def _load_inference_model(
 
     logger.info("Model path: %s", model_path)
 
-    use_rcot_wrapper = True
+    use_t2mlr_wrapper = True
     if os.path.isdir(model_path):
         base_config = _get_base_config_from_dir(model_path)
         if not base_config:
-            use_rcot_wrapper = False
+            use_t2mlr_wrapper = False
 
-    if use_rcot_wrapper:
-        rcot_kwargs = {"dtype": ref_dtype}
+    if use_t2mlr_wrapper:
+        t2mlr_kwargs = {"dtype": ref_dtype}
         if device.type == "cpu":
-            rcot_kwargs["attn_impl"] = "sdpa"
-        model = RCOTWrapper.from_pretrained_with_rcot(model_path, **rcot_kwargs)
+            t2mlr_kwargs["attn_impl"] = "sdpa"
+        model = T2MLRWrapper.from_pretrained_with_t2mlr(model_path, **t2mlr_kwargs)
     else:
         model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=ref_dtype)
 
@@ -789,7 +789,7 @@ def run_generation_evaluation(
     trainer,
     tokenizer: AutoTokenizer,
     eval_dataset: Dataset,
-    rcot_args: RCOTArguments,
+    t2mlr_args: T2MLRArguments,
     eval_args: GenerationEvalArguments,
     training_args: TrainingArguments,
     model_args: ModelArguments,
@@ -822,16 +822,16 @@ def run_generation_evaluation(
         inference_model = _load_inference_model(model_args, training_args, tokenizer, device)
     finally:
         model_args.model_name_or_path = old_model_path
-    if isinstance(inference_model, RCOTWrapper):
+    if isinstance(inference_model, T2MLRWrapper):
         inference_model.control_flow_all_recurrent = bool(control_flow_all_recurrent)
         logger.info(
-            "Generation eval: RCOT prompt recurrent=%s (control_flow_all_recurrent=%s)",
+            "Generation eval: T2MLR prompt recurrent=%s (control_flow_all_recurrent=%s)",
             inference_model.control_flow_all_recurrent,
             control_flow_all_recurrent,
         )
     else:
         logger.info(
-            "Generation eval: RCOT prompt recurrent unavailable (non-RCOT model); control_flow_all_recurrent=%s",
+            "Generation eval: T2MLR prompt recurrent unavailable (non-T2MLR model); control_flow_all_recurrent=%s",
             control_flow_all_recurrent,
         )
     generation_kwargs = _prepare_generation_kwargs(eval_args)
@@ -1055,8 +1055,8 @@ def run_generation_evaluation(
                     and target_in_batch_idx is not None
                     and generation_idx == 0
                 )
-                # RCOTWrapper supports extra kwargs (tokenizer, record_gating_stats).
-                if isinstance(inference_model, RCOTWrapper):
+                # T2MLRWrapper supports extra kwargs (tokenizer, record_gating_stats).
+                if isinstance(inference_model, T2MLRWrapper):
                     outputs = inference_model.generate(
                         input_ids=batch_input_ids,
                         attention_mask=batch_attention_mask,
@@ -1425,7 +1425,7 @@ def run_perplexity_evaluation(
     trainer,
     tokenizer: AutoTokenizer,
     eval_dataset: Dataset,
-    rcot_args: RCOTArguments,
+    t2mlr_args: T2MLRArguments,
     training_args: TrainingArguments,
     batch_size: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -1439,7 +1439,7 @@ def run_perplexity_evaluation(
         trainer: The trainer instance (used to access the model)
         tokenizer: The tokenizer
         eval_dataset: The evaluation dataset
-        rcot_args: RCOT configuration arguments
+        t2mlr_args: T2MLR configuration arguments
         training_args: Training arguments
         batch_size: Batch size for evaluation (defaults to training_args.per_device_eval_batch_size)
     
@@ -1448,7 +1448,7 @@ def run_perplexity_evaluation(
     """
     import math
     from torch.utils.data import DataLoader
-    from components.data_utils import rcot_collator    
+    from components.data_utils import t2mlr_collator    
 
     device = training_args.device
     if batch_size is None:
@@ -1467,8 +1467,8 @@ def run_perplexity_evaluation(
     model.to(device)
     model.config.batch_forward = False # This should already be done when calling model.eval()
     
-    # Create collator - use rcot_collator to include control_flows when RCOT is enabled
-    collator = rcot_collator(tokenizer, rcot_args)
+    # Create collator - use t2mlr_collator to include control_flows when T2MLR is enabled
+    collator = t2mlr_collator(tokenizer, t2mlr_args)
     
     # For distributed evaluation, shard the dataset
     world_size = training_args.world_size
@@ -1513,8 +1513,8 @@ def run_perplexity_evaluation(
                     attention_mask = attention_mask.to(device)
                 labels = batch["labels"].to(device)
                 
-                # Get control flows if available and RCOT is enabled
-                # rcot_collator uses "control_flows" (plural) as the key
+                # Get control flows if available and T2MLR is enabled
+                # t2mlr_collator uses "control_flows" (plural) as the key
                 control_flows = batch.get("control_flows")
                 if control_flows is not None:
                     control_flows = control_flows.to(device)
@@ -1522,7 +1522,7 @@ def run_perplexity_evaluation(
                 # Forward pass with autocast
                 if use_autocast and autocast_dtype is not None:
                     with torch.autocast(device_type="cuda", dtype=autocast_dtype):
-                        if rcot_args.rcot_enabled and control_flows is not None:
+                        if t2mlr_args.t2mlr_enabled and control_flows is not None:
                             outputs = model(
                             input_ids=input_ids,
                             attention_mask=attention_mask,
@@ -1534,7 +1534,7 @@ def run_perplexity_evaluation(
                             attention_mask=attention_mask,
                             )
                 else:
-                    if rcot_args.rcot_enabled and control_flows is not None:
+                    if t2mlr_args.t2mlr_enabled and control_flows is not None:
                         outputs = model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,

@@ -119,7 +119,7 @@ class TrainingArguments(TA):
     )
 
     project_name: Optional[str] = field(
-        default='rcot',
+        default='t2mlr',
         metadata={"help": "Name of the W&B project"}
     )
 
@@ -279,9 +279,9 @@ class TrainingArguments(TA):
         metadata={"help": "Number of layers to skip at the end of the model for skip-layer evaluation."}
     )
 
-    skip_layer_eval_rcot_enabled: Optional[bool] = field(
+    skip_layer_eval_t2mlr_enabled: Optional[bool] = field(
         default=None,
-        metadata={"help": "Whether to enable RCOT during skip-layer evaluation. None uses model's default."}
+        metadata={"help": "Whether to enable T2MLR during skip-layer evaluation. None uses model's default."}
     )
 
     skip_layer_eval_batch_size: Optional[int] = field(
@@ -533,11 +533,11 @@ class DataArguments:
     )
 
     custom_ctrl_flow_tokenization: str = field(
-        default="rcot",
+        default="t2mlr",
         metadata={
             "help": (
                 "Custom control flow tokenization method to use. "
-                "Example: --custom_ctrl_flow_tokenization rcot. Use 'none' to disable."
+                "Example: --custom_ctrl_flow_tokenization t2mlr. Use 'none' to disable."
             )
         },
     )
@@ -553,30 +553,30 @@ class DataArguments:
     )
     
 @dataclass
-class RCOTArguments:
+class T2MLRArguments:
 
-    rcot_enabled: Optional[bool] = field(
+    t2mlr_enabled: Optional[bool] = field(
         default=True,
-        metadata={"help": "Enable RCOT, default is True"}
+        metadata={"help": "Enable T2MLR, default is True"}
     )
     l_start: Optional[int] = field(
         default=0,
-        metadata={"help": "Start layer for RCOT (the layer that recieves recurrent information)"}
+        metadata={"help": "Start layer for T2MLR (the layer that recieves recurrent information)"}
     )
 
     l_end: Optional[int] = field(
         default=-1,
-        metadata={"help": "End layer for RCOT (the layer that yeilds recurrent information for the next token position)"}
+        metadata={"help": "End layer for T2MLR (the layer that yeilds recurrent information for the next token position)"}
     )
 
     recurrent_weight: Optional[float] = field(
         default=1.0,
-        metadata={"help": "Recurrent weight for rcot merging, default is 1.0 (or initial value if using curriculum)"}
+        metadata={"help": "Recurrent weight for t2mlr merging, default is 1.0 (or initial value if using curriculum)"}
     )
 
     orig_weight: Optional[float] = field(
         default=0.0,
-        metadata={"help": "Original weight for rcot merging, default is 0.0"}
+        metadata={"help": "Original weight for t2mlr merging, default is 0.0"}
     )
 
     # Curriculum learning parameters for recurrent_weight
@@ -612,12 +612,12 @@ class RCOTArguments:
 
     batch_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to enable approximated batch forward for rcot (for efficient training / prefilling), default is False"}
+        metadata={"help": "Whether to enable approximated batch forward for t2mlr (for efficient training / prefilling), default is False"}
     )
 
     batch_forward_approximate_depth: Optional[int] = field(
         default=1,
-        metadata={"help": "The depth of the approximate batch forward for rcot (for efficient training / prefilling), default is 1"}
+        metadata={"help": "The depth of the approximate batch forward for t2mlr (for efficient training / prefilling), default is 1"}
     )
 
     batch_forward_approximate_depth_values: Optional[str] = field(
@@ -698,12 +698,12 @@ class RCOTArguments:
 
     batch_backward_approximate_depth: Optional[int] = field(
         default=10000000,
-        metadata={"help": "The depth of the approximate batch backward for rcot (for efficient training / prefilling), default is 10000000 (infinite backward depth)"}
+        metadata={"help": "The depth of the approximate batch backward for t2mlr (for efficient training / prefilling), default is 10000000 (infinite backward depth)"}
     )
 
     eval_batch_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to enable approximated batch forward for rcot during evaluation, default is False"}
+        metadata={"help": "Whether to enable approximated batch forward for t2mlr during evaluation, default is False"}
     )
 
     # --- BFA memory optimization flags ---
@@ -946,7 +946,7 @@ class RCOTArguments:
         default="linear",
         metadata={
             "help": (
-                "Architecture for learnable RCOT gates. "
+                "Architecture for learnable T2MLR gates. "
                 "Options: 'linear' (default) or 'mlp'. "
                 "When 'mlp', the gate projection becomes an MLP and still ends with a sigmoid."
             )
@@ -1023,17 +1023,17 @@ class RCOTArguments:
         },
     )
     weight_decay_exclusions: Optional[str] = field(
-        default=r'["^.*\\.rcot_mixing_module\\.(rezero_gamma.*|gamma.*)$"]',
+        default=r'["^.*\\.t2mlr_mixing_module\\.(rezero_gamma.*|gamma.*)$"]',
         metadata={
             "help": (
                 "Regex patterns (JSON list or comma/space-separated string) for parameters that should "
-                "receive no weight decay. Example: '[\"^.*\\\\.rcot_mixing_module\\\\.rezero_gamma$\"]'."
+                "receive no weight decay. Example: '[\"^.*\\\\.t2mlr_mixing_module\\\\.rezero_gamma$\"]'."
             )
         },
     )
     freeze_base_model: Optional[bool] = field(
         default=False,
-        metadata={"help": "Freeze all base model parameters; only RCOT adapters/gates remain trainable."}
+        metadata={"help": "Freeze all base model parameters; only T2MLR adapters/gates remain trainable."}
     )
 
 
@@ -1298,20 +1298,20 @@ class RLArguments:
         metadata={"help": "Number of processes for dataset map operations (0 = main process)."},
     )
 
-    # -- Optimizer: gate LR boost (mirrors RCOTArguments) --
+    # -- Optimizer: gate LR boost (mirrors T2MLRArguments) --
     gate_lr_multiplier: Optional[Union[float, str]] = field(
         default=None,
         metadata={
             "help": (
                 "Learning rate multiplier for gate parameters. "
                 "Can be a single float or a JSON dict of regex→multiplier, "
-                'e.g. \'{"^.*\\\\.rcot_mixing_module\\\\..*": 10.0}\'.'
+                'e.g. \'{"^.*\\\\.t2mlr_mixing_module\\\\..*": 10.0}\'.'
             )
         },
     )
 
     weight_decay_exclusions: Optional[str] = field(
-        default=r'["^.*\\.rcot_mixing_module\\.(rezero_gamma.*|gamma.*)$"]',
+        default=r'["^.*\\.t2mlr_mixing_module\\.(rezero_gamma.*|gamma.*)$"]',
         metadata={
             "help": "Regex patterns (JSON list) for parameters excluded from weight decay."
         },

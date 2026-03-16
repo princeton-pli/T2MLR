@@ -1,12 +1,12 @@
 runs:
-  - RUN_TAG: "prosqa_rcot_off"
+  - RUN_TAG: "prosqa_t2mlr_off"
     MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
-    RCOT_ENABLED: "False"
+    T2MLR_ENABLED: "False"
 
-  - RUN_TAG: "prosqa_rcot_on_l1"
+  - RUN_TAG: "prosqa_t2mlr_on_l1"
     MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
-    RCOT_ENABLED: "True"
+    T2MLR_ENABLED: "True"
     L_START: 1
     RECURRENT_RESIDUAL_TO_RECURRENT_CACHE: "True"

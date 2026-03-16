@@ -6,14 +6,14 @@ info() { echo "[INFO] $*" >&2; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-EXP_NAME="${EXP_NAME:-medusa}"
+EXP_NAME="${EXP_NAME:-ftp}"
 SWEEP="${SWEEP:-1}"
 SUBMIT_TRAIN="${SUBMIT_TRAIN:-1}"
 LOCAL_RUN="${LOCAL_RUN:-0}"
 SBATCH_ARGS_BASE="${SBATCH_ARGS_BASE:-${SBATCH_ARGS:-}}"
-RUN_NAME_BASE="${RUN_NAME_BASE:-medusa}"
+RUN_NAME_BASE="${RUN_NAME_BASE:-ftp}"
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/scripts/${EXP_NAME}/slurm}"
-TRAIN_SCRIPT="${TRAIN_SCRIPT:-$REPO_ROOT/scripts/${EXP_NAME}/train_medusa.sh}"
+TRAIN_SCRIPT="${TRAIN_SCRIPT:-$REPO_ROOT/scripts/${EXP_NAME}/train_ftp.sh}"
 SWEEP_PARAMS_YAML="${SWEEP_PARAMS_YAML:-$REPO_ROOT/scripts/${EXP_NAME}/sweep_params.yaml}"
 
 _is_true() {
@@ -94,7 +94,7 @@ submit_run() {
 
     mkdir -p "$LOG_DIR/${run_tag}"
     train_job="$(sbatch --export=ALL --parsable \
-      --job-name="medusa_${run_tag}" \
+      --job-name="ftp_${run_tag}" \
       --output="$LOG_DIR/${run_tag}/train-%j.out" \
       --error="$LOG_DIR/${run_tag}/train-%j.err" \
       "${extra_args[@]}" \
@@ -161,18 +161,18 @@ _process_yaml_run() {
     fi
   done
 
-  # Include rcot_enabled status explicitly in the run name
-  local rcot_tag=""
-  case "${RCOT_ENABLED:-False}" in
-    True|true|1) rcot_tag="_rcot_on" ;;
-    *)           rcot_tag="_rcot_off" ;;
+  # Include t2mlr_enabled status explicitly in the run name
+  local t2mlr_tag=""
+  case "${T2MLR_ENABLED:-False}" in
+    True|true|1) t2mlr_tag="_t2mlr_on" ;;
+    *)           t2mlr_tag="_t2mlr_off" ;;
   esac
 
   local tag=""
   if [ -n "$override_tag" ]; then
-    tag="${override_tag}${rcot_tag}"
+    tag="${override_tag}${t2mlr_tag}"
   else
-    tag="$(_build_run_tag "$RUN_NAME_BASE" "${tag_parts[@]}")${rcot_tag}"
+    tag="$(_build_run_tag "$RUN_NAME_BASE" "${tag_parts[@]}")${t2mlr_tag}"
   fi
 
   if [ "$set_suffix" -eq 0 ] && [ "$has_env_suffix" -eq 0 ]; then

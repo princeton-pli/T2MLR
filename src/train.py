@@ -17,16 +17,16 @@ from components.all_arguments import (
     ModelArguments,
     TrainingArguments,
     DataArguments,
-    RCOTArguments,
+    T2MLRArguments,
     GenerationEvalArguments,
 )
-from components.data_utils import rcot_collator, RCOTEvalCollator, SkipLayerEvalCollator
+from components.data_utils import t2mlr_collator, T2MLREvalCollator, SkipLayerEvalCollator
 from components.generation_eval import run_generation_evaluation, build_rl_reward_function, should_run_perplexity_eval
 
-from components.rcot_trainer import RCOTTrainer
+from components.t2mlr_trainer import T2MLRTrainer
 # from trl import GRPOConfig
-from rcot_wrapper import RCOTWrapper
-from rcot_wrapper.rcot_config import RCOTConfig
+from t2mlr_wrapper import T2MLRWrapper
+from t2mlr_wrapper.t2mlr_config import T2MLRConfig
 from transformers import set_seed
 from datasets import load_from_disk, load_dataset, Dataset
 from modeling import TinyLlamaConfig, TinyLlamaForCausalLM, RNNLMConfig, RNNLMForCausalLM
@@ -38,11 +38,11 @@ parser = HfArgumentParser(
         ModelArguments,
         TrainingArguments,
         DataArguments,
-        RCOTArguments,
+        T2MLRArguments,
         GenerationEvalArguments,
     )
 )
-model_args, training_args, data_args, rcot_args, eval_args, remaining_cli = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+model_args, training_args, data_args, t2mlr_args, eval_args, remaining_cli = parser.parse_args_into_dataclasses(return_remaining_strings=True)
 
 def _should_log_to_wandb(args: TrainingArguments) -> bool:
     report_to = getattr(args, "report_to", None)
@@ -65,7 +65,7 @@ def _log_wandb_config(
     training_args: TrainingArguments,
     model_args: ModelArguments,
     data_args: DataArguments,
-    rcot_args: RCOTArguments,
+    t2mlr_args: T2MLRArguments,
     eval_args: GenerationEvalArguments,
 ) -> None:
     if os.environ.get("WANDB_DISABLED", "").strip().lower() in {"true", "1", "yes"}:
@@ -80,7 +80,7 @@ def _log_wandb_config(
         "training": getattr(training_args, "to_dict", lambda: asdict(training_args))(),
         "model": asdict(model_args),
         "data": asdict(data_args),
-        "rcot": asdict(rcot_args),
+        "t2mlr": asdict(t2mlr_args),
         "eval": asdict(eval_args),
     }
     try:
@@ -131,8 +131,8 @@ def _maybe_apply_liger_kernels_to_model_instance(model_obj: Any, *, desc: str) -
     """
     Apply Liger kernels to a *supported* HF transformer model instance.
 
-    Important: Liger dispatches based on `model.config.model_type`. RCOT models have
-    `model_type="rcot"`, which Liger doesn't support, so we must apply to the
+    Important: Liger dispatches based on `model.config.model_type`. T2MLR models have
+    `model_type="t2mlr"`, which Liger doesn't support, so we must apply to the
     underlying base model instance instead (e.g., LLaMA/Qwen/...).
     """
     if not getattr(training_args, "use_liger_kernel", False):
@@ -141,13 +141,13 @@ def _maybe_apply_liger_kernels_to_model_instance(model_obj: Any, *, desc: str) -
         return
 
     # Best-effort idempotency (avoid re-applying if we touch the same instance twice).
-    if getattr(model_obj, "_rcot_liger_applied", False):
+    if getattr(model_obj, "_t2mlr_liger_applied", False):
         return
 
     from liger_kernel.transformers import _apply_liger_kernel_to_instance 
 
     _apply_liger_kernel_to_instance(model_obj)
-    setattr(model_obj, "_rcot_liger_applied", True)
+    setattr(model_obj, "_t2mlr_liger_applied", True)
     logging.info(
         "Applied Liger kernels to %s (%s, model_type=%s).",
         desc,
@@ -370,7 +370,7 @@ train_collator = None
 eval_collator = None
 
 # load model
-rcot_model = None
+t2mlr_model = None
 base_model = None
 
 model_name_key = model_args.model_name_or_path.strip().lower()
@@ -446,18 +446,18 @@ elif model_args.model_name_or_path.strip().lower() in ("rnnlm", "rnn", "gru", "l
         )
         base_model = RNNLMForCausalLM(model_config)
 else:
-    is_rcot_checkpoint = False
+    is_t2mlr_checkpoint = False
     if model_args.from_pretrained:
         try:
-            rcot_cfg = RCOTConfig.from_pretrained(model_args.model_name_or_path)
-            is_rcot_checkpoint = getattr(rcot_cfg, "model_type", "") == "rcot"
+            t2mlr_cfg = T2MLRConfig.from_pretrained(model_args.model_name_or_path)
+            is_t2mlr_checkpoint = getattr(t2mlr_cfg, "model_type", "") == "t2mlr"
         except Exception:
-            is_rcot_checkpoint = False
+            is_t2mlr_checkpoint = False
 
-    if model_args.from_pretrained and is_rcot_checkpoint:
-        rcot_model = RCOTWrapper.from_pretrained_with_rcot(
+    if model_args.from_pretrained and is_t2mlr_checkpoint:
+        t2mlr_model = T2MLRWrapper.from_pretrained_with_t2mlr(
             model_args.model_name_or_path,
-            rcot_args=rcot_args,
+            t2mlr_args=t2mlr_args,
             torch_dtype=torch.bfloat16,
             attn_impl=model_args.attn_impl,
         )
@@ -470,10 +470,10 @@ else:
             )
             _maybe_apply_liger_kernels_to_model_instance(base_model, desc="HF base model (from_pretrained)")
         except Exception:
-            # The config structure now uses RCOTWrapper for all models.
-            rcot_model = RCOTWrapper.from_pretrained_with_rcot(
+            # The config structure now uses T2MLRWrapper for all models.
+            t2mlr_model = T2MLRWrapper.from_pretrained_with_t2mlr(
                 model_args.model_name_or_path,
-                rcot_args=rcot_args,
+                t2mlr_args=t2mlr_args,
                 torch_dtype=torch.bfloat16,
                 attn_impl=model_args.attn_impl,
             )
@@ -492,49 +492,49 @@ else:
         base_model = AutoModelForCausalLM.from_config(model_config)
         _maybe_apply_liger_kernels_to_model_instance(base_model, desc="HF base model (from_config)")
 
-if rcot_model is None:
+if t2mlr_model is None:
     if base_model is None:
         raise RuntimeError("Failed to initialize base model.")
 
-    # RNN baseline cannot be wrapped by RCOT (requires transformer blocks).
+    # RNN baseline cannot be wrapped by T2MLR (requires transformer blocks).
     base_type = str(getattr(base_model.config, "model_type", "") or "").lower()
     if base_type == "rnnlm":
-        if rcot_args.rcot_enabled:
-            raise ValueError("RCOT is not supported for `rnnlm` (non-transformer baseline). Set --rcot_enabled False.")
-        rcot_model = base_model
+        if t2mlr_args.t2mlr_enabled:
+            raise ValueError("T2MLR is not supported for `rnnlm` (non-transformer baseline). Set --t2mlr_enabled False.")
+        t2mlr_model = base_model
     else:
-        # Ensure attn_impl is tracked on the base config for downstream RCOT wiring
+        # Ensure attn_impl is tracked on the base config for downstream T2MLR wiring
         try:
             setattr(base_model.config, "attn_impl", model_args.attn_impl)
         except Exception:
             logging.warning("Could not set attn_impl on base model config; continuing without it.")
-        # Apply Liger kernels before wrapping the model in RCOT adapters/wrappers.
-        _maybe_apply_liger_kernels_to_model_instance(base_model, desc="HF base model (pre-RCOT wrap)")
-        rcot_model = RCOTWrapper.from_base_model(base_model, rcot_args)
+        # Apply Liger kernels before wrapping the model in T2MLR adapters/wrappers.
+        _maybe_apply_liger_kernels_to_model_instance(base_model, desc="HF base model (pre-T2MLR wrap)")
+        t2mlr_model = T2MLRWrapper.from_base_model(base_model, t2mlr_args)
 
-# If we ended up with an RCOT wrapper (e.g., loaded from an RCOT checkpoint),
+# If we ended up with an T2MLR wrapper (e.g., loaded from an T2MLR checkpoint),
 # ensure Liger kernels are applied to the underlying base model instance rather
-# than the RCOT wrapper itself.
+# than the T2MLR wrapper itself.
 try:
-    underlying = getattr(rcot_model, "rcot_model", None)
+    underlying = getattr(t2mlr_model, "t2mlr_model", None)
     if underlying is not None:
-        _maybe_apply_liger_kernels_to_model_instance(underlying, desc="RCOT underlying base model")
+        _maybe_apply_liger_kernels_to_model_instance(underlying, desc="T2MLR underlying base model")
 except Exception:
     pass
 
 if model_args.depth_scaling:
     from components.depth_scaling_wrapper import update_depth_scaling
-    model = update_depth_scaling(rcot_model, model_args.model_name_or_path)
+    model = update_depth_scaling(t2mlr_model, model_args.model_name_or_path)
 
-if s5_tokens_added > 0 and rcot_model is not None:
-    rcot_model.resize_token_embeddings(len(tokenizer))
+if s5_tokens_added > 0 and t2mlr_model is not None:
+    t2mlr_model.resize_token_embeddings(len(tokenizer))
     try:
-        if hasattr(rcot_model, "config") and isinstance(getattr(rcot_model, "config", None), object):
-            base_cfg = getattr(rcot_model.config, "base_config", None)
+        if hasattr(t2mlr_model, "config") and isinstance(getattr(t2mlr_model, "config", None), object):
+            base_cfg = getattr(t2mlr_model.config, "base_config", None)
             if isinstance(base_cfg, dict):
                 base_cfg["vocab_size"] = len(tokenizer)
     except Exception:
-        logging.warning("Failed to update RCOT base_config vocab_size; continuing.")
+        logging.warning("Failed to update T2MLR base_config vocab_size; continuing.")
 
 # load datasets (support raw jsonl paths or HF saved datasets)
 def _load_path(path: str):
@@ -833,7 +833,7 @@ if training_stage != "rl":
 
         if data_args.control_flow_all_recurrent:
             return [2] * prompt_len
-        return ([2] * prompt_len) if rcot_args.rcot_enabled else ([1] * prompt_len)
+        return ([2] * prompt_len) if t2mlr_args.t2mlr_enabled else ([1] * prompt_len)
 
     def _tokenize_prompt(prompt_text: str) -> List[int]:
         if is_chat:
@@ -1122,7 +1122,7 @@ if training_stage != "rl":
 
         return example
 
-    train_collator = rcot_collator(tokenizer, rcot_args)
+    train_collator = t2mlr_collator(tokenizer, t2mlr_args)
     dataset_num_proc = getattr(training_args, "dataset_num_proc", None) or training_args.dataloader_num_workers
 
     # Determine which preprocessing function to use based on whether prompt_column is provided
@@ -1198,20 +1198,20 @@ if training_stage != "rl":
         
         # For LM-style evaluation (prompt-only inputs + per-token labels), use the standard
         # collator so the forward pass receives aligned labels and control_flows.
-        # NOTE: When RCOT is enabled we *must* include `control_flows` in the eval batch,
-        # otherwise the RCOT recurrent path is bypassed (control_flows defaults to ones).
-        # For text-only preprocessing, always use rcot_collator since we include control_flow.
+        # NOTE: When T2MLR is enabled we *must* include `control_flows` in the eval batch,
+        # otherwise the T2MLR recurrent path is bypassed (control_flows defaults to ones).
+        # For text-only preprocessing, always use t2mlr_collator since we include control_flow.
         if use_text_only_preprocessing or not concat_response_to_input:
-            eval_collator = rcot_collator(tokenizer, rcot_args)
+            eval_collator = t2mlr_collator(tokenizer, t2mlr_args)
         else:
-            eval_collator = rcot_collator(tokenizer, rcot_args) if rcot_args.rcot_enabled else RCOTEvalCollator(tokenizer)
+            eval_collator = t2mlr_collator(tokenizer, t2mlr_args) if t2mlr_args.t2mlr_enabled else T2MLREvalCollator(tokenizer)
     else:
         if data_args.insert_pause_tokens:
             logging.warning(
                 "Pause token insertion is enabled but dataset is already preprocessed. "
                 "Pause tokens will NOT be inserted. Please preprocess from raw data."
             )
-        eval_collator = rcot_collator(tokenizer, rcot_args)
+        eval_collator = t2mlr_collator(tokenizer, t2mlr_args)
 
     # Train postprocessing is only needed when truncation is enabled.
     # When max_seq_length is None ("no truncation"), mapping over the full dataset is wasted work.
@@ -1235,7 +1235,7 @@ else:
 
 # initialize trainer
 if training_stage == "rl":
-    from components.rcot_grpo_trainer import RCOTGRPOTrainer
+    from components.t2mlr_grpo_trainer import T2MLRGRPOTrainer
     grpo_config = GRPOConfig()
 
     for field in fields(GRPOConfig):
@@ -1260,8 +1260,8 @@ if training_stage == "rl":
     grpo_config.remove_unused_columns = False
     reward_function = build_rl_reward_function(eval_args)
 
-    trainer = RCOTGRPOTrainer(
-        model=rcot_model,
+    trainer = T2MLRGRPOTrainer(
+        model=t2mlr_model,
         reward_funcs=reward_function,
         args=grpo_config,
         train_dataset=rl_train_dataset if training_args.do_train else None,
@@ -1360,10 +1360,10 @@ else:
     # For debugging
     # train_dataset = train_dataset.take(200)
 
-    trainer = RCOTTrainer(
-        model=rcot_model,
+    trainer = T2MLRTrainer(
+        model=t2mlr_model,
         training_args=training_args,
-        rcot_args=rcot_args,
+        t2mlr_args=t2mlr_args,
         data_args=data_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
@@ -1378,7 +1378,7 @@ else:
             training_args=training_args,
             model_args=model_args,
             data_args=data_args,
-            rcot_args=rcot_args,
+            t2mlr_args=t2mlr_args,
             eval_args=eval_args,
         )
 
@@ -1436,7 +1436,7 @@ if training_args.do_eval:
         #     trainer=trainer,
         #     tokenizer=tokenizer,
         #     eval_dataset=eval_dataset,
-        #     rcot_args=rcot_args,
+        #     t2mlr_args=t2mlr_args,
         #     training_args=training_args,
         # )
         # trainer.log_metrics("eval_ppl", ppl_metrics)
@@ -1447,7 +1447,7 @@ if training_args.do_eval:
             trainer=trainer,
             tokenizer=tokenizer,
             eval_dataset=eval_dataset,
-            rcot_args=rcot_args,
+            t2mlr_args=t2mlr_args,
             eval_args=eval_args,
             training_args=training_args,
             model_args=model_args,
@@ -1459,7 +1459,7 @@ if training_args.do_eval:
 
 # Skip-layer evaluation: compute future token probabilities with skipped layers
 if training_args.do_skip_layer_eval and eval_dataset is not None:
-    from rcot_wrapper.skip_layer_inference_wrapper import SkipLayerInferenceWrapper
+    from t2mlr_wrapper.skip_layer_inference_wrapper import SkipLayerInferenceWrapper
     from torch.utils.data import DataLoader
     from tqdm import tqdm
     
@@ -1467,16 +1467,16 @@ if training_args.do_skip_layer_eval and eval_dataset is not None:
     logging.info("Starting Skip-Layer Evaluation")
     logging.info("=" * 50)
     logging.info(f"  Layers to skip: {training_args.skip_layer_eval_layers_to_skip}")
-    logging.info(f"  RCOT enabled: {training_args.skip_layer_eval_rcot_enabled}")
+    logging.info(f"  T2MLR enabled: {training_args.skip_layer_eval_t2mlr_enabled}")
     logging.info(f"  Batch size: {training_args.skip_layer_eval_batch_size}")
     logging.info(f"  Num future tokens: {training_args.skip_layer_eval_num_future_tokens}")
     logging.info(f"  Eval samples: {len(eval_dataset)}")
     
     # Create the skip-layer wrapper
     skip_layer_wrapper = SkipLayerInferenceWrapper(
-        model=rcot_model,
+        model=t2mlr_model,
         num_layers_to_skip=training_args.skip_layer_eval_layers_to_skip,
-        rcot_enabled=training_args.skip_layer_eval_rcot_enabled,
+        t2mlr_enabled=training_args.skip_layer_eval_t2mlr_enabled,
     )
     logging.info(f"Created wrapper: {skip_layer_wrapper}")
     
@@ -1493,7 +1493,7 @@ if training_args.do_skip_layer_eval and eval_dataset is not None:
     # Create collator for skip-layer evaluation
     skip_layer_collator = SkipLayerEvalCollator(
         tokenizer=tokenizer,
-        include_control_flows=training_args.skip_layer_eval_rcot_enabled is not False,
+        include_control_flows=training_args.skip_layer_eval_t2mlr_enabled is not False,
     )
     
     # Create dataloader
@@ -1506,8 +1506,8 @@ if training_args.do_skip_layer_eval and eval_dataset is not None:
     )
     
     # Get device and dtype
-    rcot_model.to("cuda")
-    device = next(rcot_model.parameters()).device
+    t2mlr_model.to("cuda")
+    device = next(t2mlr_model.parameters()).device
     
     # Determine dtype for autocast (bf16 or fp16)
     use_bf16 = getattr(training_args, 'bf16', False)
@@ -1586,7 +1586,7 @@ if training_args.do_skip_layer_eval and eval_dataset is not None:
         "skip_layer_eval/avg_token_probability": avg_prob,
         "skip_layer_eval/total_tokens": total_tokens,
         "skip_layer_eval/layers_skipped": training_args.skip_layer_eval_layers_to_skip,
-        "skip_layer_eval/rcot_enabled": skip_layer_wrapper._rcot_enabled,
+        "skip_layer_eval/t2mlr_enabled": skip_layer_wrapper._t2mlr_enabled,
         "skip_layer_eval/num_future_tokens": num_future_tokens,
     }
     

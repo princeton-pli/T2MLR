@@ -14,20 +14,20 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.trainer_utils import get_last_checkpoint
 
 from .block_wrapper import apply_block_wrapper, BlockWrapper
-from .rcot_config import RCOTConfig
-from .rcot_gate_zoo import get_rcot_mixing_module_class
+from .t2mlr_config import T2MLRConfig
+from .t2mlr_gate_zoo import get_t2mlr_mixing_module_class
 from .model_io_utils import (
     load_base_model_from_config,
     load_weights_for_model,
     fetch_hidden_size,
     resolve_dtype,
-    load_rcot_config_with_fallback,
+    load_t2mlr_config_with_fallback,
 )
 
 from modeling.tinyllama import TinyLlamaConfig, TinyLlamaForCausalLM
 
-from components.all_arguments import RCOTArguments
-from components.rcot_utils import split_batch_by_recurrent_flow
+from components.all_arguments import T2MLRArguments
+from components.t2mlr_utils import split_batch_by_recurrent_flow
 from dataclasses import dataclass
 
 from IPython import embed
@@ -48,13 +48,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 @dataclass
-class RCOTOutput(ModelOutput):
+class T2MLROutput(ModelOutput):
     hidden_states: Optional[Tuple[torch.Tensor]] = None
     past_key_values: Optional[Tuple[torch.Tensor]] = None
     logits: Optional[torch.Tensor] = None
 
-class RCOTWrapper(PreTrainedModel, GenerationMixin):
-    config_class = RCOTConfig
+class T2MLRWrapper(PreTrainedModel, GenerationMixin):
+    config_class = T2MLRConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = []  # Will be inherited from base model
@@ -62,14 +62,14 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
     
     def __init__(
         self,
-        config: RCOTConfig,
+        config: T2MLRConfig,
         base_model: Optional[PreTrainedModel] = None
     ):
         """
-        Initialize the RCOT wrapper for continuous chain of thought.
+        Initialize the T2MLR wrapper for continuous chain of thought.
         
         Args:
-            config: RCOTConfig instance containing all configuration
+            config: T2MLRConfig instance containing all configuration
             model: The base HuggingFace model to wrap (optional if loading from pretrained)
         """
         super().__init__(config)
@@ -87,7 +87,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         logger.info(f"Base Model Hidden Size: {self.hidden_size}; Total number of layers: {self.num_layers}")
         
         # Configure the recurrence range
-        self.rcot_enabled = self.config.rcot_enabled
+        self.t2mlr_enabled = self.config.t2mlr_enabled
         self.l_start = self.config.l_start
         # Allow Python-style negative indexing for l_end (e.g., -1 -> last layer)
         self.l_end = self.config.l_end if self.config.l_end >= 0 else self.num_layers + self.config.l_end
@@ -97,23 +97,23 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         )
         # Deprecated: gate tracing is handled via record_gating_stats/mixing_module_logs.
         self._gate_trace_records: Optional[List[dict]] = None
-        logger.info("Initializing RCOTWrapper with l_start: {}, l_end: {}".format(self.l_start, self.l_end))
+        logger.info("Initializing T2MLRWrapper with l_start: {}, l_end: {}".format(self.l_start, self.l_end))
         
         # Initialize the recurrent mixing module
-        assert 'recurrent_mixing_module_name' in self.config, f"recurrent_mixing_module_name must be set in the config (chose from {get_rcot_mixing_module_class(None).keys()})"
+        assert 'recurrent_mixing_module_name' in self.config, f"recurrent_mixing_module_name must be set in the config (chose from {get_t2mlr_mixing_module_class(None).keys()})"
         self.recurrent_mixing_module_name = self.config.recurrent_mixing_module_name
-        logger.info(f"Initializing RCOT Mixing Module: {self.recurrent_mixing_module_name}")
-        mixing_module_cls = get_rcot_mixing_module_class(self.recurrent_mixing_module_name)
-        rcot_mixing_module = mixing_module_cls.from_config(config, hidden_size=self.hidden_size, dtype=resolve_dtype(self.config.base_config["dtype"]))
+        logger.info(f"Initializing T2MLR Mixing Module: {self.recurrent_mixing_module_name}")
+        mixing_module_cls = get_t2mlr_mixing_module_class(self.recurrent_mixing_module_name)
+        t2mlr_mixing_module = mixing_module_cls.from_config(config, hidden_size=self.hidden_size, dtype=resolve_dtype(self.config.base_config["dtype"]))
 
         if self.config.freeze_base_model:
-            logger.info("Freezing base model parameters; RCOT adapters remain trainable.")
+            logger.info("Freezing base model parameters; T2MLR adapters remain trainable.")
             for param in base_model.parameters():
                 param.requires_grad = False
 
-        self.rcot_model = apply_block_wrapper(
+        self.t2mlr_model = apply_block_wrapper(
             base_model,
-            rcot_mixing_module,
+            t2mlr_mixing_module,
             l_start=self.l_start,
         )
 
@@ -135,8 +135,8 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         self.control_flow_all_recurrent = False
 
         # State for optional skip-to-l_end mode (populated when we inject recurrent input at l_start).
-        self._rcot_skip_recurrent_embedding: Optional[torch.Tensor] = None
-        self._rcot_skip_control_flows: Optional[torch.Tensor] = None
+        self._t2mlr_skip_recurrent_embedding: Optional[torch.Tensor] = None
+        self._t2mlr_skip_control_flows: Optional[torch.Tensor] = None
         self._l_end_skip_hook_handle = None
         self._register_l_end_skip_hook()
 
@@ -153,8 +153,8 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         if not bool(getattr(self.config, "recurrent_skip_to_l_end", False)):
             return output
 
-        recurrent_embedding = getattr(self, "_rcot_skip_recurrent_embedding", None)
-        control_flows = getattr(self, "_rcot_skip_control_flows", None)
+        recurrent_embedding = getattr(self, "_t2mlr_skip_recurrent_embedding", None)
+        control_flows = getattr(self, "_t2mlr_skip_control_flows", None)
         if recurrent_embedding is None or control_flows is None:
             return output
 
@@ -238,7 +238,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
 
     @property
     def layers(self):
-        return self.get_layers_from_model(self.rcot_model)
+        return self.get_layers_from_model(self.t2mlr_model)
 
     @property
     def model(self):
@@ -246,7 +246,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         Expose the underlying HF "base model" under the conventional `.model` attribute
         without registering it as a child module (avoids duplicate keys in state_dict).
         """
-        return getattr(self.rcot_model, "model", self.rcot_model)
+        return getattr(self.t2mlr_model, "model", self.t2mlr_model)
 
     @property
     def lm_head(self):
@@ -254,11 +254,11 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         Expose the language modeling head under the conventional `.lm_head` attribute
         without registering it as a child module (avoids duplicate keys in state_dict).
         """
-        head = getattr(self.rcot_model, "lm_head", None)
+        head = getattr(self.t2mlr_model, "lm_head", None)
         if head is not None:
             return head
         try:
-            return self.rcot_model.get_output_embeddings()
+            return self.t2mlr_model.get_output_embeddings()
         except Exception:
             return None
 
@@ -273,34 +273,34 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         return super().load_state_dict(state_dict, strict=strict, assign=assign)
     
     @classmethod
-    def from_pretrained_with_rcot(cls, model_name_or_path: str, **kwargs):
+    def from_pretrained_with_t2mlr(cls, model_name_or_path: str, **kwargs):
         """
         Minimal loader:
-          - If RCOT config exists at path, rebuild base model, wrap, and load weights.
-          - Otherwise error (no rcot_args-based wrapping here).
+          - If T2MLR config exists at path, rebuild base model, wrap, and load weights.
+          - Otherwise error (no t2mlr_args-based wrapping here).
         """
         attn_impl_override = kwargs.pop("attn_impl", None)
         try:
-            rcot_config = load_rcot_config_with_fallback(model_name_or_path)
-            logger.info(f"Successfully loaded RCOT config from {rcot_config.name_or_path}")
+            t2mlr_config = load_t2mlr_config_with_fallback(model_name_or_path)
+            logger.info(f"Successfully loaded T2MLR config from {t2mlr_config.name_or_path}")
         except Exception as e:
-            raise Exception(f"Failed to load RCOT config from {model_name_or_path}") from e
+            raise Exception(f"Failed to load T2MLR config from {model_name_or_path}") from e
 
-        if "dtype" in kwargs and getattr(rcot_config, "dtype", None) is not None:
-            rcot_config.dtype = kwargs["dtype"]
+        if "dtype" in kwargs and getattr(t2mlr_config, "dtype", None) is not None:
+            t2mlr_config.dtype = kwargs["dtype"]
             logger.info(f"Set dtype to {kwargs['dtype']}")
 
         if attn_impl_override is not None:
             try:
-                setattr(rcot_config, "attn_impl", attn_impl_override)
-                base_cfg = getattr(rcot_config, "base_config", None)
+                setattr(t2mlr_config, "attn_impl", attn_impl_override)
+                base_cfg = getattr(t2mlr_config, "base_config", None)
                 if isinstance(base_cfg, dict):
                     base_cfg["attn_impl"] = attn_impl_override
             except Exception:
-                logger.warning("Could not apply attn_impl override to rcot_config; continuing with existing value.")
+                logger.warning("Could not apply attn_impl override to t2mlr_config; continuing with existing value.")
 
-        base_model = load_base_model_from_config(rcot_config)
-        model = cls(rcot_config, base_model)
+        base_model = load_base_model_from_config(t2mlr_config)
+        model = cls(t2mlr_config, base_model)
         load_weights_for_model(model, model_name_or_path, strict=False)
 
         device_map = kwargs.get("device_map", None)
@@ -313,10 +313,10 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         return model
     
     @classmethod
-    def from_base_model(cls, base_model: PreTrainedModel, rcot_args: RCOTArguments):
-        """Wrap an existing model instance with RCOT."""
-        rcot_config = RCOTConfig.from_base_config(base_model.config, rcot_args)
-        return cls(rcot_config, base_model)
+    def from_base_model(cls, base_model: PreTrainedModel, t2mlr_args: T2MLRArguments):
+        """Wrap an existing model instance with T2MLR."""
+        t2mlr_config = T2MLRConfig.from_base_config(base_model.config, t2mlr_args)
+        return cls(t2mlr_config, base_model)
     
     def set_recurrent_input(self, block_id, recurrent_embedding, control_flows, mixing_module_log_buffer) -> nn.Module:
         target_layer = self.layers[block_id]
@@ -337,58 +337,58 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
             control_flows = control_flows.to(target_device)
 
         # Cache the injected recurrent embedding for optional skip-to-l_end mode (pre-gate).
-        self._rcot_skip_recurrent_embedding = recurrent_embedding
-        self._rcot_skip_control_flows = control_flows
+        self._t2mlr_skip_recurrent_embedding = recurrent_embedding
+        self._t2mlr_skip_control_flows = control_flows
         
         target_layer.set_recurrent_input(
             recurrent_embedding,
             control_flows,
             mixing_module_log_buffer
         )
-        return self.rcot_model
+        return self.t2mlr_model
     
     def reset_recurrent_input(self):
         for layer in self.layers:
             if isinstance(layer, BlockWrapper):
                 layer.set_recurrent_input(None, None, None)
-        self._rcot_skip_recurrent_embedding = None
-        self._rcot_skip_control_flows = None
+        self._t2mlr_skip_recurrent_embedding = None
+        self._t2mlr_skip_control_flows = None
 
     # Gate trace helpers removed: use `generate(..., record_gating_stats=True)` and read `outputs.mixing_module_logs`.
     
     # Required PreTrainedModel delegation methods
     def get_input_embeddings(self):
         """Get the input embeddings from the wrapped model."""
-        return self.rcot_model.get_input_embeddings()
+        return self.t2mlr_model.get_input_embeddings()
     
     def set_input_embeddings(self, value):
         """Set the input embeddings of the wrapped model."""
-        self.rcot_model.set_input_embeddings(value)
+        self.t2mlr_model.set_input_embeddings(value)
     
     def get_output_embeddings(self):
         """Get the output embeddings from the wrapped model."""
-        return self.rcot_model.get_output_embeddings()
+        return self.t2mlr_model.get_output_embeddings()
     
     def set_output_embeddings(self, new_embeddings):
         """Set the output embeddings of the wrapped model."""
-        self.rcot_model.set_output_embeddings(new_embeddings)
+        self.t2mlr_model.set_output_embeddings(new_embeddings)
     
     def resize_token_embeddings(self, new_num_tokens: int, pad_to_multiple_of: Optional[int] = None):
         """Resize token embeddings of the wrapped model."""
-        return self.rcot_model.resize_token_embeddings(new_num_tokens, pad_to_multiple_of)
+        return self.t2mlr_model.resize_token_embeddings(new_num_tokens, pad_to_multiple_of)
     
     def tie_weights(self):
         """Tie weights in the wrapped model."""
-        self.rcot_model.tie_weights()
+        self.t2mlr_model.tie_weights()
     
     def _reorder_cache(self, past_key_values, beam_idx):
         """Reorder the cache for beam search."""
 
         # Fall back to the model's _reorder_cache if it exists
-        if hasattr(self.rcot_model, '_reorder_cache'):
-            return self.rcot_model._reorder_cache(past_key_values, beam_idx)
-        if hasattr(self.rcot_model.__class__, '_reorder_cache'):
-            return self.rcot_model.__class__._reorder_cache(past_key_values, beam_idx)
+        if hasattr(self.t2mlr_model, '_reorder_cache'):
+            return self.t2mlr_model._reorder_cache(past_key_values, beam_idx)
+        if hasattr(self.t2mlr_model.__class__, '_reorder_cache'):
+            return self.t2mlr_model.__class__._reorder_cache(past_key_values, beam_idx)
         
         if past_key_values is None:
             return past_key_values
@@ -406,14 +406,14 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
     def eval(self):
         """Set the model to evaluation mode."""
         super().eval()
-        self.rcot_model.eval()
+        self.t2mlr_model.eval()
         self.config.batch_forward = False
         return self
     
     def train(self, *args, **kwargs):
         """Set the model to training mode."""
         super().train(*args, **kwargs)
-        self.rcot_model.train(*args, **kwargs)
+        self.t2mlr_model.train(*args, **kwargs)
         self.config.batch_forward = True
         return self
 
@@ -435,7 +435,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
             record_gating_stats: bool = False,
             prompt_recurrence_bfad: int = -1, # if -1, use infinite recurrence (exact sequence forward)
             **kwargs
-        ) -> Union[RCOTOutput, CausalLMOutputWithPast]:
+        ) -> Union[T2MLROutput, CausalLMOutputWithPast]:
 
         logger.debug("Forward pass !!!!\n")
         # During generation we may want to record gate stats, but cannot always pass custom kwargs
@@ -449,14 +449,14 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         # Internal flag toggled by generate() to force simple recurrence
         force_simple = getattr(self, "_force_simple_recurrent", False)
         if control_flows is None:
-            if self.config.rcot_enabled:
+            if self.config.t2mlr_enabled:
                 raise ValueError(
-                    "RCOT is enabled but `control_flows` was not provided. "
-                    "Pass `control_flows` explicitly (shape like `input_ids`) or disable RCOT."
+                    "T2MLR is enabled but `control_flows` was not provided. "
+                    "Pass `control_flows` explicitly (shape like `input_ids`) or disable T2MLR."
                 )
 
-        # If RCOT is not enabled or there is no recurrence, do a regular forward pass
-        if not self.config.rcot_enabled or (control_flows is not None and torch.max(control_flows) <= 1):
+        # If T2MLR is not enabled or there is no recurrence, do a regular forward pass
+        if not self.config.t2mlr_enabled or (control_flows is not None and torch.max(control_flows) <= 1):
             logger.debug("Regular forward pass")
             # During generation, we still want to seed the recurrent cache from the prompt so
             # the first recurrent token can mix with the last prompt token's l_end state.
@@ -465,7 +465,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
                 and getattr(self, "auto_control_flow_generation", False)
                 and (past_key_values is None or self._is_empty_cache(past_key_values))
                 and kwargs.get("use_cache", False)
-                and self.config.rcot_enabled
+                and self.config.t2mlr_enabled
             )
 
             captured_hidden = {}
@@ -477,7 +477,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
                 hook_handle = self.layers[self.l_end].register_forward_hook(_capture_l_end_hidden)
 
             try:
-                outputs = self.rcot_model(
+                outputs = self.t2mlr_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
@@ -537,7 +537,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
                     **kwargs
                 )
         else:
-            assert not self.training or force_simple, "Simple recurrent forward is only supported in evaluation mode, please set batch_forward to True if you want to train with RCOT"
+            assert not self.training or force_simple, "Simple recurrent forward is only supported in evaluation mode, please set batch_forward to True if you want to train with T2MLR"
             # For multi-token sequences, prefer exact recurrence unless generate() set force-simple.
             if (not force_simple):
                 logger.debug("Exact sequence recurrent forward")
@@ -568,7 +568,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
             hidden_states=None,
             record_gating_stats: bool = False,
             **kwargs
-        ) -> Union[RCOTOutput, CausalLMOutputWithPast]:
+        ) -> Union[T2MLROutput, CausalLMOutputWithPast]:
         """
         Simple recurrent forward pass similar to inference_wrapper approach.
         Uses internal cache to capture hidden states from l_end and inject at l_start.
@@ -610,7 +610,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
 
         attn_impl_attr = None
         orig_attn_impl = None
-        model_cfg = getattr(self.rcot_model, "config", None)
+        model_cfg = getattr(self.t2mlr_model, "config", None)
         if use_eager_attention and model_cfg is not None:
             if hasattr(model_cfg, "_attn_implementation"):
                 attn_impl_attr = "_attn_implementation"
@@ -633,11 +633,11 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         # prompt token so the first recurrent decode step can mix with it.
         hook_handle = self.layers[self.l_end].register_forward_hook(_capture_l_end_hidden)
         try:
-            output = self.rcot_model(
+            output = self.t2mlr_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 past_key_values=past_key_values,
-                use_cache=True,  # KV cache must be enabled for RCOT to work at inference time.
+                use_cache=True,  # KV cache must be enabled for T2MLR to work at inference time.
                 output_hidden_states=False,
                 **kwargs,
             )
@@ -770,7 +770,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
                 while t_end < seq_len and bool(torch.all(control_flows[:, t_end] <= 1).item()):
                     t_end += 1
 
-                # No RCOT mixing in non-recurrent spans, but still seed recurrence from l_end.
+                # No T2MLR mixing in non-recurrent spans, but still seed recurrence from l_end.
                 self.recurrent_cache = None
                 self.reset_recurrent_input()
 
@@ -790,7 +790,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
 
                 hook_handle = self.layers[self.l_end].register_forward_hook(_capture_l_end_hidden)
                 try:
-                    out = self.rcot_model(
+                    out = self.t2mlr_model(
                         input_ids=chunk_input_ids,
                         attention_mask=chunk_attention_mask,
                         past_key_values=past_key_values,
@@ -894,7 +894,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
     # Generation support methods
     def generate(self, *args, auto_control_flow: bool = True, record_gating_stats: bool = False, **kwargs):
         """
-        Generate sequences using the model with automatic RCOT control flow management.
+        Generate sequences using the model with automatic T2MLR control flow management.
         
         Args:
             auto_control_flow (bool): If True, automatically manage control flows during generation.
@@ -912,7 +912,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         """
         # Set up shared gating buffer for the full generate call
         self.active_gate_buffer = {} if record_gating_stats else None
-        self.auto_control_flow_generation = auto_control_flow and self.config.rcot_enabled and "control_flows" not in kwargs
+        self.auto_control_flow_generation = auto_control_flow and self.config.t2mlr_enabled and "control_flows" not in kwargs
         
         # Disable cache_implementation if not already specified (for compatibility)
         if 'cache_implementation' not in kwargs:
@@ -954,7 +954,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         **model_kwargs
     ):
         """
-        Prepare inputs for generation, including RCOT-specific control flows.
+        Prepare inputs for generation, including T2MLR-specific control flows.
         
         This method is called by generate() at each step to prepare inputs.
         """
@@ -962,15 +962,15 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         manual_control_flow = control_flows
         
         # Get base model's prepared inputs
-        base_inputs = self.rcot_model.prepare_inputs_for_generation(
+        base_inputs = self.t2mlr_model.prepare_inputs_for_generation(
             input_ids=input_ids,
             past_key_values=past_key_values,
             attention_mask=attention_mask,
             **model_kwargs
         )
 
-        # If RCOT is disabled, just return base inputs
-        if not self.rcot_enabled:
+        # If T2MLR is disabled, just return base inputs
+        if not self.t2mlr_enabled:
             if manual_control_flow is not None:
                 base_inputs["control_flows"] = manual_control_flow
             return base_inputs
@@ -984,7 +984,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
             tokens = base_inputs.get("input_ids", input_ids)
             if tokens is None:
                 raise ValueError(
-                    "Automatic RCOT generation requires `input_ids`. "
+                    "Automatic T2MLR generation requires `input_ids`. "
                     "Provide `control_flows` manually when using inputs_embeds."
                 )
             
@@ -1007,7 +1007,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         if control_flow_tensor is None:
             control_flow_tensor = torch.tensor(control_flows, device=input_ids.device, dtype=input_ids.dtype)
 
-        # Zero-out control flows on padding positions to avoid RCOT mixing on padded tokens.
+        # Zero-out control flows on padding positions to avoid T2MLR mixing on padded tokens.
         mask = base_inputs.get("attention_mask", attention_mask)
         if mask is not None and torch.is_tensor(mask):
             mask = self._coerce_attention_mask(mask)
@@ -1068,7 +1068,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
     @staticmethod
     def _apply_packed_boundary_zeros(shifted_cache: torch.Tensor, position_ids: Optional[torch.Tensor]) -> torch.Tensor:
         """
-        For packed sequences (multiple segments concatenated along time), prevent RCOT recurrent cache
+        For packed sequences (multiple segments concatenated along time), prevent T2MLR recurrent cache
         from leaking across segment boundaries by zeroing the cache at every segment-start token.
 
         We treat any token position where position_ids == 0 as a segment start.
@@ -1098,7 +1098,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
             training_flag: bool = True,
             record_gating_stats: bool = False,
             **kwargs
-        ) -> Union[RCOTOutput, CausalLMOutputWithPast]:
+        ) -> Union[T2MLROutput, CausalLMOutputWithPast]:
 
         gate_buffer = None
         if record_gating_stats:
@@ -1155,7 +1155,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
 
         hook_l_end = self.layers[self.l_end].register_forward_hook(capture_l_end)
 
-        output_dummy = self.rcot_model(
+        output_dummy = self.t2mlr_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             output_hidden_states=False,
@@ -1313,7 +1313,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         )
 
         kwargs.pop("use_cache", None)
-        outputs = self.rcot_model(
+        outputs = self.t2mlr_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             use_cache=not training_flag,
@@ -1368,7 +1368,7 @@ class RCOTWrapper(PreTrainedModel, GenerationMixin):
         cleaned_state_dict = OrderedDict()
 
         for key, value in state_dict.items():
-            new_key, _ = RCOTWrapper._fix_state_dict_key_on_load_legacy(key)
+            new_key, _ = T2MLRWrapper._fix_state_dict_key_on_load_legacy(key)
             cleaned_state_dict[new_key] = value
 
         if metadata is not None:

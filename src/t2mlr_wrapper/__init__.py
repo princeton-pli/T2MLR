@@ -1,43 +1,43 @@
 """
-RCOT (Recurrent Chain of Thought) Package
+T2MLR (Recurrent Chain of Thought) Package
 
 This package provides tools for implementing continuous chain of thought in transformer models.
 It includes wrappers for both individual transformer blocks and entire models to enable
 recurrent connections between layers.
 
 Main Components:
-- RCOTWrapper: Wraps entire transformer models to enable continuous chain of thought
-- RCOTConfig: Configuration class for RCOT models
+- T2MLRWrapper: Wraps entire transformer models to enable continuous chain of thought
+- T2MLRConfig: Configuration class for T2MLR models
 - BlockWrapper: Wraps individual transformer blocks to enable recurrent connections
 - TransformerBlockWrapperFactory: Factory for creating wrapped transformer blocks
 
 Example Usage:
     from transformers import AutoModelForCausalLM
-    from rcot_wrapper import RCOTWrapper
-    from components.all_arguments import RCOTArguments
+    from t2mlr_wrapper import T2MLRWrapper
+    from components.all_arguments import T2MLRArguments
 
     # Load base model
     model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-1b")
     
-    # Create RCOT arguments
-    rcot_args = RCOTArguments(l_start=5, l_end=10)
+    # Create T2MLR arguments
+    t2mlr_args = T2MLRArguments(l_start=5, l_end=10)
     
-    # Wrap with RCOT
-    rcot_model = RCOTWrapper.from_base_model(model, rcot_args)
+    # Wrap with T2MLR
+    t2mlr_model = T2MLRWrapper.from_base_model(model, t2mlr_args)
     
     # Save as pretrained model
-    rcot_model.save_pretrained("./my_rcot_model")
+    t2mlr_model.save_pretrained("./my_t2mlr_model")
     
     # Load later
-    rcot_model = RCOTWrapper.from_pretrained("./my_rcot_model")
+    t2mlr_model = T2MLRWrapper.from_pretrained("./my_t2mlr_model")
 
     # Use with flow control
     flow_control = torch.tensor([[0, 1, 2, 2, 2, 3]])
-    outputs = rcot_model(input_ids=input_ids, control_flows=flow_control)
+    outputs = t2mlr_model(input_ids=input_ids, control_flows=flow_control)
 """
 
-from .rcot_wrapper import RCOTWrapper
-from .rcot_config import RCOTConfig
+from .t2mlr_wrapper import T2MLRWrapper
+from .t2mlr_config import T2MLRConfig
 from .block_wrapper import BlockWrapper, apply_block_wrapper
 from .recurrent_mixer import RecurrentInputMixer, RecurrentMixerConfig
 from .skip_layer_inference_wrapper import (
@@ -51,8 +51,8 @@ from .skip_layer_inference_wrapper import (
 
 __version__ = "0.1.0"
 __all__ = [
-    "RCOTWrapper",
-    "RCOTConfig",
+    "T2MLRWrapper",
+    "T2MLRConfig",
     "BlockWrapper",
     "apply_block_wrapper",
     "RecurrentInputMixer",

@@ -2,16 +2,16 @@
 Skip Layer Inference Wrapper
 
 A wrapper for inference that can skip a specified number of transformer layers
-at the end of the model (before the LM head). Works with both RCOT enabled and disabled.
+at the end of the model (before the LM head). Works with both T2MLR enabled and disabled.
 
 Example usage:
-    from rcot_wrapper.skip_layer_inference_wrapper import SkipLayerInferenceWrapper
+    from t2mlr_wrapper.skip_layer_inference_wrapper import SkipLayerInferenceWrapper
     
-    # Wrap an existing model (RCOTWrapper or base model)
+    # Wrap an existing model (T2MLRWrapper or base model)
     wrapper = SkipLayerInferenceWrapper(
         model,
         num_layers_to_skip=4,  # Skip the last 4 layers before LM head
-        rcot_enabled=True,     # Enable/disable RCOT
+        t2mlr_enabled=True,     # Enable/disable T2MLR
     )
     
     # Generate
@@ -31,8 +31,8 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 class SkipLayerConfig:
     """Configuration for the skip layer inference wrapper."""
     num_layers_to_skip: int = 0
-    rcot_enabled: bool = True
-    # RCOT parameters (used only if wrapping a base model, not RCOTWrapper)
+    t2mlr_enabled: bool = True
+    # T2MLR parameters (used only if wrapping a base model, not T2MLRWrapper)
     l_start: Optional[int] = None
     l_end: Optional[int] = None
     recurrent_weight: float = 0.2
@@ -50,13 +50,13 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
     - Reducing inference latency
     
     Works with both:
-    - RCOTWrapper models (with RCOT enabled/disabled)
+    - T2MLRWrapper models (with T2MLR enabled/disabled)
     - Base HuggingFace models (AutoModelForCausalLM)
     
     Args:
-        model: The model to wrap (RCOTWrapper or base CausalLM model)
+        model: The model to wrap (T2MLRWrapper or base CausalLM model)
         num_layers_to_skip: Number of layers to skip at the end (before LM head)
-        rcot_enabled: Whether to use RCOT during inference (only applies if model is RCOTWrapper)
+        t2mlr_enabled: Whether to use T2MLR during inference (only applies if model is T2MLRWrapper)
     """
     
     main_input_name = "input_ids"
@@ -65,24 +65,24 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         self,
         model: PreTrainedModel,
         num_layers_to_skip: int = 0,
-        rcot_enabled: Optional[bool] = None,
+        t2mlr_enabled: Optional[bool] = None,
     ):
         super().__init__()
         self.model = model
         self.num_layers_to_skip = num_layers_to_skip
         
-        # Detect if the model is an RCOTWrapper
-        self.is_rcot_wrapper = hasattr(model, 'rcot_enabled') # and hasattr(model, '_layer_container')
+        # Detect if the model is an T2MLRWrapper
+        self.is_t2mlr_wrapper = hasattr(model, 't2mlr_enabled') # and hasattr(model, '_layer_container')
         
-        # Set RCOT enabled state
-        if rcot_enabled is not None:
-            self._rcot_enabled = rcot_enabled
-            if self.is_rcot_wrapper:
+        # Set T2MLR enabled state
+        if t2mlr_enabled is not None:
+            self._t2mlr_enabled = t2mlr_enabled
+            if self.is_t2mlr_wrapper:
                 # Store original and set new state
-                self._original_rcot_enabled = model.rcot_enabled
-                model.rcot_enabled = rcot_enabled
+                self._original_t2mlr_enabled = model.t2mlr_enabled
+                model.t2mlr_enabled = t2mlr_enabled
         else:
-            self._rcot_enabled = model.rcot_enabled if self.is_rcot_wrapper else False
+            self._t2mlr_enabled = model.t2mlr_enabled if self.is_t2mlr_wrapper else False
         
         # Resolve layer container and attributes
         self._resolve_layer_structure()
@@ -97,7 +97,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         # Calculate effective layer count
         self.effective_num_layers = self.num_layers - self.num_layers_to_skip
         
-        # Cache for RCOT recurrent state
+        # Cache for T2MLR recurrent state
         self._recurrent_cache = None
         
         # Store original layers for restoration
@@ -106,14 +106,14 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         
     def _resolve_layer_structure(self):
         """Resolve the transformer layer container based on model architecture."""
-        # Get the actual model (unwrap RCOTWrapper if needed)
-        if self.is_rcot_wrapper:
-            # RCOTWrapper stores the underlying model in rcot_model
-            base_model = self.model.rcot_model
+        # Get the actual model (unwrap T2MLRWrapper if needed)
+        if self.is_t2mlr_wrapper:
+            # T2MLRWrapper stores the underlying model in t2mlr_model
+            base_model = self.model.t2mlr_model
         else:
             base_model = self.model
         
-        # Detect layer structure (same logic for both RCOTWrapper and base models)
+        # Detect layer structure (same logic for both T2MLRWrapper and base models)
         if hasattr(base_model, "model") and hasattr(base_model.model, "layers"):
             # LLaMA-style
             self._layer_container = base_model.model
@@ -226,7 +226,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             input_ids: Input token IDs
             attention_mask: Attention mask
             past_key_values: Cached key-value pairs for efficient generation
-            control_flows: RCOT control flow tensor (if using RCOT)
+            control_flows: T2MLR control flow tensor (if using T2MLR)
             use_cache: Whether to return key-value cache
             output_hidden_states: Whether to output all hidden states
             return_dict: Whether to return a ModelOutput object
@@ -241,8 +241,8 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             # Enable layer skipping by modifying the model structure
             self._enable_layer_skipping()
             
-            # Update RCOT l_end if using RCOTWrapper to account for skipped layers
-            if self.is_rcot_wrapper and self._rcot_enabled:
+            # Update T2MLR l_end if using T2MLRWrapper to account for skipped layers
+            if self.is_t2mlr_wrapper and self._t2mlr_enabled:
                 original_l_end = self.model.l_end
                 # Adjust l_end if it exceeds the effective layer count
                 if self.model.l_end >= self.effective_num_layers:
@@ -256,8 +256,8 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
                 original_batch_forward = self.model.config.batch_forward
                 self.model.config.batch_forward = True
             
-            # Handle RCOT control flows
-            if self.is_rcot_wrapper and self._rcot_enabled:
+            # Handle T2MLR control flows
+            if self.is_t2mlr_wrapper and self._t2mlr_enabled:
                 # If no control flows provided, create default ones
                 if control_flows is None:
                     batch_size, seq_len = input_ids.shape
@@ -266,7 +266,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
                     if seq_len > 1:
                         control_flows[:, 1:] = 2
                 
-                # Pass through RCOTWrapper's forward
+                # Pass through T2MLRWrapper's forward
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -278,7 +278,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
                     **kwargs
                 )
             else:
-                # Regular forward pass (RCOT disabled or base model)
+                # Regular forward pass (T2MLR disabled or base model)
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -293,10 +293,10 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             
         finally:
             # Restore l_end if modified
-            if self.is_rcot_wrapper and original_l_end is not None:
+            if self.is_t2mlr_wrapper and original_l_end is not None:
                 self.model.l_end = original_l_end
             # Restore batch_forward if modified
-            if self.is_rcot_wrapper and original_batch_forward is not None:
+            if self.is_t2mlr_wrapper and original_batch_forward is not None:
                 self.model.config.batch_forward = original_batch_forward
             # Restore original layers
             self._restore_layers()
@@ -312,7 +312,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         
         Args:
             input_ids: Input token IDs
-            auto_control_flow: If True and RCOT is enabled, automatically manage control flows
+            auto_control_flow: If True and T2MLR is enabled, automatically manage control flows
             **kwargs: Additional generation arguments
         
         Returns:
@@ -322,19 +322,19 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             # Enable layer skipping
             self._enable_layer_skipping()
             
-            # Update RCOT l_end if using RCOTWrapper to account for skipped layers
+            # Update T2MLR l_end if using T2MLRWrapper to account for skipped layers
             original_l_end = None
-            if self.is_rcot_wrapper and self._rcot_enabled:
+            if self.is_t2mlr_wrapper and self._t2mlr_enabled:
                 original_l_end = self.model.l_end
                 # Adjust l_end if it exceeds the effective layer count
                 if self.model.l_end >= self.effective_num_layers:
                     self.model.l_end = self.effective_num_layers - 1
             
             # Delegate to model's generate method
-            if self.is_rcot_wrapper:
+            if self.is_t2mlr_wrapper:
                 outputs = self.model.generate(
                     input_ids=input_ids,
-                    auto_control_flow=auto_control_flow and self._rcot_enabled,
+                    auto_control_flow=auto_control_flow and self._t2mlr_enabled,
                     **kwargs
                 )
             else:
@@ -347,7 +347,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             
         finally:
             # Restore l_end if modified
-            if self.is_rcot_wrapper and original_l_end is not None:
+            if self.is_t2mlr_wrapper and original_l_end is not None:
                 self.model.l_end = original_l_end
             
             # Restore original layers
@@ -382,7 +382,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             attention_mask: Optional attention mask
-            control_flows: Optional RCOT control flows
+            control_flows: Optional T2MLR control flows
             return_log_probs: If True, return log probabilities instead of probabilities
             temperature: Temperature for softmax (default 1.0)
             num_future_tokens: Number of future tokens to compute probabilities for (default 5)
@@ -503,7 +503,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             attention_mask: Optional attention mask
-            control_flows: Optional RCOT control flows
+            control_flows: Optional T2MLR control flows
             **kwargs: Additional arguments passed to forward
         
         Returns:
@@ -537,7 +537,7 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
             f"  num_layers={self.num_layers},\n"
             f"  num_layers_to_skip={self.num_layers_to_skip},\n"
             f"  effective_num_layers={self.effective_num_layers},\n"
-            f"  rcot_enabled={self._rcot_enabled}\n"
+            f"  t2mlr_enabled={self._t2mlr_enabled}\n"
             f")"
         )
 
@@ -545,36 +545,36 @@ class SkipLayerInferenceWrapper(nn.Module, GenerationMixin):
 def wrap_model_for_skip_layer_inference(
     model: PreTrainedModel,
     num_layers_to_skip: int = 0,
-    rcot_enabled: Optional[bool] = None,
+    t2mlr_enabled: Optional[bool] = None,
 ) -> SkipLayerInferenceWrapper:
     """
     Convenience function to wrap a model for skip-layer inference.
     
     Args:
-        model: The model to wrap (RCOTWrapper or base CausalLM)
+        model: The model to wrap (T2MLRWrapper or base CausalLM)
         num_layers_to_skip: Number of layers to skip at the end
-        rcot_enabled: Whether to enable RCOT (None = use model's default)
+        t2mlr_enabled: Whether to enable T2MLR (None = use model's default)
     
     Returns:
         SkipLayerInferenceWrapper instance
     
     Example:
         >>> from transformers import AutoModelForCausalLM
-        >>> from rcot_wrapper import RCOTWrapper
+        >>> from t2mlr_wrapper import T2MLRWrapper
         >>> 
-        >>> # With RCOTWrapper
+        >>> # With T2MLRWrapper
         >>> base_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
-        >>> rcot_model = RCOTWrapper.from_base_model(base_model, rcot_args)
-        >>> wrapper = wrap_model_for_skip_layer_inference(rcot_model, num_layers_to_skip=4)
+        >>> t2mlr_model = T2MLRWrapper.from_base_model(base_model, t2mlr_args)
+        >>> wrapper = wrap_model_for_skip_layer_inference(t2mlr_model, num_layers_to_skip=4)
         >>> 
-        >>> # With base model (no RCOT)
+        >>> # With base model (no T2MLR)
         >>> base_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
         >>> wrapper = wrap_model_for_skip_layer_inference(base_model, num_layers_to_skip=4)
     """
     return SkipLayerInferenceWrapper(
         model=model,
         num_layers_to_skip=num_layers_to_skip,
-        rcot_enabled=rcot_enabled,
+        t2mlr_enabled=t2mlr_enabled,
     )
 
 
@@ -582,7 +582,7 @@ def compute_future_token_probabilities(
     model: PreTrainedModel,
     input_ids: torch.LongTensor,
     num_layers_to_skip: int = 0,
-    rcot_enabled: Optional[bool] = None,
+    t2mlr_enabled: Optional[bool] = None,
     attention_mask: Optional[torch.Tensor] = None,
     return_log_probs: bool = False,
     temperature: float = 1.0,
@@ -595,10 +595,10 @@ def compute_future_token_probabilities(
     and computes probabilities for multiple future tokens in parallel.
     
     Args:
-        model: The model to use (RCOTWrapper or base CausalLM)
+        model: The model to use (T2MLRWrapper or base CausalLM)
         input_ids: Input token IDs of shape (batch_size, seq_len)
         num_layers_to_skip: Number of layers to skip at the end (before LM head)
-        rcot_enabled: Whether to enable RCOT (None = use model's default)
+        t2mlr_enabled: Whether to enable T2MLR (None = use model's default)
         attention_mask: Optional attention mask
         return_log_probs: If True, return log probabilities instead of probabilities
         temperature: Temperature for softmax (default 1.0)
@@ -639,7 +639,7 @@ def compute_future_token_probabilities(
     wrapper = SkipLayerInferenceWrapper(
         model=model,
         num_layers_to_skip=num_layers_to_skip,
-        rcot_enabled=rcot_enabled,
+        t2mlr_enabled=t2mlr_enabled,
     )
     
     return wrapper.compute_future_token_probabilities(

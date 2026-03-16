@@ -9,7 +9,7 @@ from trl.trainer.grpo_trainer import GRPOTrainer
 from trl.extras.profiling import profiling_decorator
 from trl.trainer.utils import entropy_from_logits, selective_log_softmax
 
-from components.rcot_trainer import (
+from components.t2mlr_trainer import (
     is_boosted_param_name,
     _parse_weight_decay_exclusions,
     _is_weight_decay_excluded,
@@ -18,8 +18,8 @@ from components.rcot_trainer import (
 logger = logging.getLogger(__name__)
 
 
-class RCOTGRPOTrainer(GRPOTrainer):
-    """GRPO variant that provides RCOT control-flow tensors when scoring completions."""
+class T2MLRGRPOTrainer(GRPOTrainer):
+    """GRPO variant that provides T2MLR control-flow tensors when scoring completions."""
 
     def __init__(self, *args, gate_lr_multiplier=None, weight_decay_exclusions=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -27,7 +27,7 @@ class RCOTGRPOTrainer(GRPOTrainer):
         self._weight_decay_exclusions_raw = weight_decay_exclusions
 
     def create_optimizer(self):
-        """Apply per-parameter LR multipliers for gate/adapter params (mirrors RCOTTrainer)."""
+        """Apply per-parameter LR multipliers for gate/adapter params (mirrors T2MLRTrainer)."""
         if self.optimizer is not None:
             return self.optimizer
 
@@ -123,15 +123,15 @@ class RCOTGRPOTrainer(GRPOTrainer):
         return self.optimizer
 
     def _model_requires_control_flow(self, model: Union[torch.nn.Module, Any]) -> bool:
-        """Detect whether the underlying model expects RCOT control flows."""
+        """Detect whether the underlying model expects T2MLR control flows."""
         try:
             base_model = self.accelerator.unwrap_model(model)
         except Exception:
             base_model = model
-        return bool(getattr(base_model, "rcot_enabled", False))
+        return bool(getattr(base_model, "t2mlr_enabled", False))
 
     def _build_control_flows(self, attention_mask: torch.Tensor, logits_to_keep: int) -> torch.Tensor:
-        """Construct RCOT control-flow values aligned with the attention mask."""
+        """Construct T2MLR control-flow values aligned with the attention mask."""
         prompt_length = attention_mask.size(1) - logits_to_keep
         prompt_length = max(prompt_length, 0)
 
@@ -168,7 +168,7 @@ class RCOTGRPOTrainer(GRPOTrainer):
         image_sizes: Optional[torch.Tensor] = None,
         token_type_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Compute log probabilities while injecting RCOT control flows when required."""
+        """Compute log probabilities while injecting T2MLR control flows when required."""
 
         batch_size = batch_size or input_ids.size(0)
         needs_control_flow = self._model_requires_control_flow(model)

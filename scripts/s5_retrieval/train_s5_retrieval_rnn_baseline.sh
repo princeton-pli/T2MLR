@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# RNN baseline (RCOT disabled) training for S5 retrieval.
+# RNN baseline (T2MLR disabled) training for S5 retrieval.
 # Mirrors the transformer baseline launch script, but uses a lightweight LSTM/GRU causal LM.
 #
 # Prompt: dict prefix + actions
@@ -8,7 +8,7 @@
 #
 # Notes:
 # - Uses the same tokenizer + dataset format as the transformer baseline.
-# - RCOT must remain disabled (RNN backbone cannot be wrapped by RCOT).
+# - T2MLR must remain disabled (RNN backbone cannot be wrapped by T2MLR).
 
 set -euo pipefail
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
@@ -22,7 +22,7 @@ cd "$REPO_ROOT"
 # -----------------------------
 # Configuration
 # -----------------------------
-RCOT_ENABLED=False
+T2MLR_ENABLED=False
 
 # Custom HF-style model implemented in src/modeling/rnnlm.py
 MODEL_NAME_OR_PATH="rnnlm"   # can also be "gru" / "lstm" / "rnn"
@@ -84,8 +84,8 @@ if [ ! -f "$EVAL_DATA_PATH" ]; then
     EVAL_DATA_PATH="$TRAIN_DATA_PATH"
 fi
 
-RCOT_TAG="rcot_off"
-RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${RCOT_TAG}"
+T2MLR_TAG="t2mlr_off"
+RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${T2MLR_TAG}"
 OUTPUT_DIR="$OUTPUT_BASE/$RUN_NAME"
 LOG_FILE="$OUTPUT_DIR/train.log"
 
@@ -132,12 +132,12 @@ PYTHONUNBUFFERED=1 stdbuf -oL -eL python "$REPO_ROOT/src/train.py" \
     --save_strategy "epoch" \
     --seed "$SEED" \
     --bf16 True \
-    --project_name "rcot_s5_retrieval" \
+    --project_name "t2mlr_s5_retrieval" \
     --disable_tqdm False \
     --save_only_model True \
     --concat_response_to_input False \
     --label_shift 0 \
-    --rcot_enabled $RCOT_ENABLED \
+    --t2mlr_enabled $T2MLR_ENABLED \
     --prompt_column "input" \
     --response_column "target" \
     --reward_mode "exact" \

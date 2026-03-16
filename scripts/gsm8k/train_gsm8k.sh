@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=gsm8k-rcot
+#SBATCH --job-name=gsm8k-t2mlr
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=32G
 #SBATCH --gres=gpu:2
 #SBATCH --time=5:59:00
-#SBATCH --partition=pli-c
-#SBATCH --output=scripts/gsm8k/slurm/gsm8k-rcot-%j.out
-#SBATCH --error=scripts/gsm8k/slurm/gsm8k-rcot-%j.err
+
+#SBATCH --output=scripts/gsm8k/slurm/gsm8k-t2mlr-%j.out
+#SBATCH --error=scripts/gsm8k/slurm/gsm8k-t2mlr-%j.err
 
 set -eo pipefail
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
@@ -109,12 +109,12 @@ TRAIN_SPLIT="${TRAIN_SPLIT:-train}"
 EVAL_SPLIT="${EVAL_SPLIT:-test}"
 
 # ============================================================================
-# RCOT FIXED PARAMETERS
+# T2MLR FIXED PARAMETERS
 # ============================================================================
 
 CONNECTION_DETACH="${CONNECTION_DETACH:-False}"
-RCOT_ENABLED="${RCOT_ENABLED:-True}"
-RCOT_MIXING_MODULE_NAME="${RCOT_MIXING_MODULE_NAME:-gated}"
+T2MLR_ENABLED="${T2MLR_ENABLED:-True}"
+T2MLR_MIXING_MODULE_NAME="${T2MLR_MIXING_MODULE_NAME:-gated}"
 GATE_LR_MULTIPLIER="${GATE_LR_MULTIPLIER:-100}"
 MIXING_MODULE_KWARGS="${MIXING_MODULE_KWARGS:-}"
 GATE_PROJ_TYPE="${GATE_PROJ_TYPE:-linear}"
@@ -139,7 +139,7 @@ INSERT_PAUSE_TOKENS="${INSERT_PAUSE_TOKENS:-False}"
 PAUSE_TOKEN_MEAN="${PAUSE_TOKEN_MEAN:-1.5}"
 
 # ============================================================================
-# RCOT SWEEP PARAMETERS (from environment, set by sweep script)
+# T2MLR SWEEP PARAMETERS (from environment, set by sweep script)
 # ============================================================================
 
 USE_PROJECTION="${USE_PROJECTION:-on}"
@@ -166,12 +166,12 @@ WINDOW_TAG="l${L_START}_to_${L_END}"
 PAUSE_TAG=""
 [[ "$INSERT_PAUSE_TOKENS" == "True" ]] && PAUSE_TAG="_pause_on_mean${PAUSE_TOKEN_MEAN//./p}"
 
-# RCOT_TAG=$([[ "$RCOT_ENABLED" == "True" ]] && echo "rcot_on" || echo "rcot_off")
-# RUN_NAME_BASE_DEFAULT="${MODEL_SLUG}_${DATASET_SLUG}_${BATCH_FORWARD_TAG}_${RCOT_TAG}_${WINDOW_TAG}_${PROJECTION_TAG}_${GATE_TAG}_${WEIGHT_TAG}_${FREEZE_TAG}${PAUSE_TAG}"
+# T2MLR_TAG=$([[ "$T2MLR_ENABLED" == "True" ]] && echo "t2mlr_on" || echo "t2mlr_off")
+# RUN_NAME_BASE_DEFAULT="${MODEL_SLUG}_${DATASET_SLUG}_${BATCH_FORWARD_TAG}_${T2MLR_TAG}_${WINDOW_TAG}_${PROJECTION_TAG}_${GATE_TAG}_${WEIGHT_TAG}_${FREEZE_TAG}${PAUSE_TAG}"
 # RUN_NAME_BASE="${RUN_NAME_BASE:-$RUN_NAME_BASE_DEFAULT}"
 RUN_NAME_SUFFIX="${RUN_NAME_SUFFIX:-}"
-RUN_NAME="${RUN_NAME:-gsm8k_rcot}"
-# RUN_NAME="${RUN_NAME:-gsm8k_nl_rcot}"
+RUN_NAME="${RUN_NAME:-gsm8k_t2mlr}"
+# RUN_NAME="${RUN_NAME:-gsm8k_nl_t2mlr}"
 
 if [[ -n "$RUN_NAME_SUFFIX" ]]; then
     RUN_NAME="${RUN_NAME}_${RUN_NAME_SUFFIX}"
@@ -181,7 +181,7 @@ OUTPUT_DIR="$OUTPUT_BASE/$RUN_NAME"
 mkdir -p "$OUTPUT_DIR"
 
 # ============================================================================
-# OPTIONAL RCOT INITIALIZATION DEFAULTS
+# OPTIONAL T2MLR INITIALIZATION DEFAULTS
 # ============================================================================
 
 if [[ -z "$RECURRENT_GATE_INIT" ]]; then
@@ -243,11 +243,11 @@ PYTHON_COMMAND=(
     --save_steps "$SAVE_STEPS"
     --seed "$SEED"
     --bf16 True
-    --project_name rcot_gsm8k
+    --project_name t2mlr_gsm8k
     --disable_tqdm False
     --save_only_model True
-    --rcot_enabled "$RCOT_ENABLED"
-    --recurrent_mixing_module_name "$RCOT_MIXING_MODULE_NAME"
+    --t2mlr_enabled "$T2MLR_ENABLED"
+    --recurrent_mixing_module_name "$T2MLR_MIXING_MODULE_NAME"
     --l_start "$L_START"
     --l_end "$L_END"
     --recurrent_weight "$RECURRENT_WEIGHT"
@@ -302,11 +302,11 @@ PYTHON_COMMAND+=(--pass_at_k "${PASS_AT_K[@]}")
 [[ "$PROJECTION_BOOL" == "True" && "$PROJECTION_DIM_CHOICE" != "auto" ]] && PYTHON_COMMAND+=(--recurrent_projection_dim "$PROJECTION_DIM_CHOICE")
 
 echo "============================================================================"
-echo "[INFO] GSM8K RCOT Training"
+echo "[INFO] GSM8K T2MLR Training"
 echo "============================================================================"
 echo "[INFO] Run name: $RUN_NAME"
 echo "[INFO] Model: $MODEL_NAME_OR_PATH"
-echo "[INFO] RCOT: $RCOT_ENABLED (l_start=$L_START, l_end=$L_END)"
+echo "[INFO] T2MLR: $T2MLR_ENABLED (l_start=$L_START, l_end=$L_END)"
 echo "[INFO] Output: $OUTPUT_DIR"
 echo "============================================================================"
 

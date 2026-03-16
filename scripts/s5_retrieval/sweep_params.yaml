@@ -3,7 +3,7 @@ runs:
     MODEL_NAME_OR_PATH: "tinyllama"
     TOKENIZER_NAME_OR_PATH: "s5_char"
     FROM_PRETRAINED: "False"
-    RCOT_ENABLED: "False"
+    T2MLR_ENABLED: "False"
     TINYLLAMA_HIDDEN_SIZE: 384
     TINYLLAMA_NUM_HIDDEN_LAYERS: 6
     TINYLLAMA_NUM_ATTENTION_HEADS: 6
@@ -15,17 +15,17 @@ runs:
     MODEL_NAME_OR_PATH: "rnnlm"
     TOKENIZER_NAME_OR_PATH: "s5_char"
     FROM_PRETRAINED: "False"
-    RCOT_ENABLED: "False"
+    T2MLR_ENABLED: "False"
     RNN_TYPE: "lstm"
     RNN_HIDDEN_SIZE: 360
     RNN_NUM_LAYERS: 4
     USE_GATE: "False"
 
-  - RUN_TAG: "s5_rcot_on_l1"
+  - RUN_TAG: "s5_t2mlr_on_l1"
     MODEL_NAME_OR_PATH: "tinyllama"
     TOKENIZER_NAME_OR_PATH: "s5_char"
     FROM_PRETRAINED: "False"
-    RCOT_ENABLED: "True"
+    T2MLR_ENABLED: "True"
     TINYLLAMA_HIDDEN_SIZE: 384
     TINYLLAMA_NUM_HIDDEN_LAYERS: 6
     TINYLLAMA_NUM_ATTENTION_HEADS: 6

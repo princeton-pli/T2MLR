@@ -118,9 +118,9 @@ def _ensure_module_device_dtype(module: Optional[nn.Module], *, device: torch.de
     if p.device != device or p.dtype != dtype:
         module.to(device=device, dtype=dtype)
 
-class RCOT_Mixing_Module(nn.Module):
+class T2MLR_Mixing_Module(nn.Module):
     """
-    Base class for RCOT mixing modules.
+    Base class for T2MLR mixing modules.
     Handles 2D and 3D tensors; mixing operations are on the last dimension.
 
     Subclasses should:
@@ -139,12 +139,12 @@ class RCOT_Mixing_Module(nn.Module):
     ]
 
     @classmethod
-    def from_config(cls, config, **override_kwargs) -> "RCOT_Mixing_Module":
+    def from_config(cls, config, **override_kwargs) -> "T2MLR_Mixing_Module":
         """
         Factory method to construct module from config.
         
         Args:
-            config: RCOTConfig instance containing all configuration
+            config: T2MLRConfig instance containing all configuration
             **override_kwargs: Additional configuration overrides
         """
         all_kwargs = config.to_dict()
@@ -187,7 +187,7 @@ class RCOT_Mixing_Module(nn.Module):
         # Pull supported kwargs (module-specific + base keys).
         wanted = list(cls.CONFIG_KEYS) + list(getattr(cls, "BASE_CONFIG_KEYS", []))
         kwargs = {k: all_kwargs[k] for k in wanted if k in all_kwargs}
-        logger.info(f"Initializing RCOT Mixing Module: {cls.__name__} with kwargs: {kwargs}")
+        logger.info(f"Initializing T2MLR Mixing Module: {cls.__name__} with kwargs: {kwargs}")
         return cls(**kwargs)
 
     def __init__(
@@ -295,23 +295,23 @@ class RCOT_Mixing_Module(nn.Module):
 
 
 # Registry to store gate implementations
-_MIXING_MODULE_REGISTRY: Dict[str, Type[RCOT_Mixing_Module]] = {}
+_MIXING_MODULE_REGISTRY: Dict[str, Type[T2MLR_Mixing_Module]] = {}
 
-def register_rcot_mixing_module(name: str):
-    """Decorator to register a RCOT mixing module class."""
-    def decorator(cls: Type[RCOT_Mixing_Module]):
+def register_t2mlr_mixing_module(name: str):
+    """Decorator to register a T2MLR mixing module class."""
+    def decorator(cls: Type[T2MLR_Mixing_Module]):
         _MIXING_MODULE_REGISTRY[name] = cls
         return cls
     return decorator
 
-def get_rcot_mixing_module_class(name: str) -> Type[RCOT_Mixing_Module]:
+def get_t2mlr_mixing_module_class(name: str) -> Type[T2MLR_Mixing_Module]:
     if name not in _MIXING_MODULE_REGISTRY:
-        raise ValueError(f"RCOT Mixing Module '{name}' not found. Available: {list(_MIXING_MODULE_REGISTRY.keys())}")
+        raise ValueError(f"T2MLR Mixing Module '{name}' not found. Available: {list(_MIXING_MODULE_REGISTRY.keys())}")
     return _MIXING_MODULE_REGISTRY[name]
 
 
-@register_rcot_mixing_module("none")
-class RCOT_No_Mixing_Module(RCOT_Mixing_Module):
+@register_t2mlr_mixing_module("none")
+class T2MLR_No_Mixing_Module(T2MLR_Mixing_Module):
     """No mixing - passes through full_hidden_states unchanged."""
     CONFIG_KEYS: List[str] = []
 
@@ -324,8 +324,8 @@ class RCOT_No_Mixing_Module(RCOT_Mixing_Module):
         return full_hidden_states, None
 
 
-@register_rcot_mixing_module("constant_weight")
-class RCOT_Constant_Weight_Mixing_Module(RCOT_Mixing_Module):
+@register_t2mlr_mixing_module("constant_weight")
+class T2MLR_Constant_Weight_Mixing_Module(T2MLR_Mixing_Module):
     """Mixing gate with a fixed alpha: out = (1-alpha)*input + alpha*recurrent."""
     CONFIG_KEYS: List[str] = ["recurrent_alpha", "use_learnable_gate", "dtype"]
 
@@ -478,7 +478,7 @@ class RecurrentStateMLP(nn.Module):
         return inputs + self.scaling * residual
 
 
-class RCOT_Base_Projected_Mixer(RCOT_Mixing_Module):
+class T2MLR_Base_Projected_Mixer(T2MLR_Mixing_Module):
     """Base class for mixers that may project the recurrent state."""
     CONFIG_KEYS: List[str] = [
         "hidden_size",
@@ -553,8 +553,8 @@ class RCOT_Base_Projected_Mixer(RCOT_Mixing_Module):
         return projected
 
 
-@register_rcot_mixing_module("concat")
-class RCOT_Concat_Mixing_Module(RCOT_Base_Projected_Mixer):
+@register_t2mlr_mixing_module("concat")
+class T2MLR_Concat_Mixing_Module(T2MLR_Base_Projected_Mixer):
     """Concatenates input and recurrent, then projects back to hidden_size."""
     CONFIG_KEYS: List[str] = [
         "hidden_size",
@@ -605,8 +605,8 @@ class RCOT_Concat_Mixing_Module(RCOT_Base_Projected_Mixer):
         return mixed_hidden_states, None
 
 
-@register_rcot_mixing_module("gated")
-class RCOT_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
+@register_t2mlr_mixing_module("gated")
+class T2MLR_Gated_Mixing_Module(T2MLR_Base_Projected_Mixer):
     """Learnable gating mechanism for mixing input and recurrent states."""
     CONFIG_KEYS: List[str] = [
         "hidden_size",
@@ -834,8 +834,8 @@ class RCOT_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
                 )
 
         if self.raise_on_nonfinite_gates:
-            _raise_if_nonfinite(recurrent_gate.to(dtype=torch.float32), name="RCOT_Gated_Mixing_Module.recurrent_gate")
-            _raise_if_nonfinite(input_gate.to(dtype=torch.float32), name="RCOT_Gated_Mixing_Module.input_gate")
+            _raise_if_nonfinite(recurrent_gate.to(dtype=torch.float32), name="T2MLR_Gated_Mixing_Module.recurrent_gate")
+            _raise_if_nonfinite(input_gate.to(dtype=torch.float32), name="T2MLR_Gated_Mixing_Module.input_gate")
 
         if (not self.disable_x_branch) and self.normalize_gates:
             # Renormalize in fp32 to avoid amplification (sum > 1).
@@ -905,8 +905,8 @@ class RCOT_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
         return mixed_hidden_states, module_log
 
 
-@register_rcot_mixing_module("var_norm_gated")
-class RCOT_VarNorm_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
+@register_t2mlr_mixing_module("var_norm_gated")
+class T2MLR_VarNorm_Gated_Mixing_Module(T2MLR_Base_Projected_Mixer):
     """
     Coupled gating mechanism that enforces variance-normalized mixing:
 
@@ -972,7 +972,7 @@ class RCOT_VarNorm_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
         legacy_alpha_flag = bool(kwargs.pop("use_learnable_alpha_gate", False))
         if legacy_alpha_flag and not use_learnable_gate:
             logger.warning(
-                "RCOT_VarNorm_Gated_Mixing_Module: received deprecated `use_learnable_alpha_gate=True`; "
+                "T2MLR_VarNorm_Gated_Mixing_Module: received deprecated `use_learnable_alpha_gate=True`; "
                 "use `use_learnable_gate` instead."
             )
         self.use_learnable_alpha_gate = bool(use_learnable_gate or legacy_alpha_flag)
@@ -1055,7 +1055,7 @@ class RCOT_VarNorm_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
         # clamp + sqrt in float32 and only then cast the gates back to `target_dtype`.
         alpha_f32 = alpha.to(dtype=torch.float32)
         if self.raise_on_nonfinite_gates:
-            _raise_if_nonfinite(alpha_f32, name="RCOT_VarNorm_Gated_Mixing_Module.alpha")
+            _raise_if_nonfinite(alpha_f32, name="T2MLR_VarNorm_Gated_Mixing_Module.alpha")
         # If alpha is already non-finite, it will poison everything downstream; make it safe.
         alpha_f32 = torch.nan_to_num(alpha_f32, nan=0.5, posinf=1.0, neginf=0.0)
         # Clamp for numerical stability: avoid sqrt(0) and large gradients near the boundaries.
@@ -1107,8 +1107,8 @@ class RCOT_VarNorm_Gated_Mixing_Module(RCOT_Base_Projected_Mixer):
         return mixed_hidden_states, module_log
 
 
-@register_rcot_mixing_module("alpha_coupled")
-class RCOT_Alpha_Coupled_Mixing_Module(RCOT_Base_Projected_Mixer):
+@register_t2mlr_mixing_module("alpha_coupled")
+class T2MLR_Alpha_Coupled_Mixing_Module(T2MLR_Base_Projected_Mixer):
     """
     Simple coupled gating with a single alpha in (0, 1):
 
@@ -1173,7 +1173,7 @@ class RCOT_Alpha_Coupled_Mixing_Module(RCOT_Base_Projected_Mixer):
         legacy_alpha_flag = bool(kwargs.pop("use_learnable_alpha_gate", False))
         if legacy_alpha_flag and not use_learnable_gate:
             logger.warning(
-                "RCOT_Alpha_Coupled_Mixing_Module: received deprecated `use_learnable_alpha_gate=True`; "
+                "T2MLR_Alpha_Coupled_Mixing_Module: received deprecated `use_learnable_alpha_gate=True`; "
                 "use `use_learnable_gate` instead."
             )
         self.use_learnable_alpha_gate = bool(use_learnable_gate or legacy_alpha_flag)
@@ -1260,7 +1260,7 @@ class RCOT_Alpha_Coupled_Mixing_Module(RCOT_Base_Projected_Mixer):
         # poison downstream mixing.
         alpha_f32 = alpha.to(dtype=torch.float32)
         if self.raise_on_nonfinite_gates:
-            _raise_if_nonfinite(alpha_f32, name="RCOT_Alpha_Coupled_Mixing_Module.alpha")
+            _raise_if_nonfinite(alpha_f32, name="T2MLR_Alpha_Coupled_Mixing_Module.alpha")
         alpha_f32 = torch.nan_to_num(alpha_f32, nan=0.5, posinf=1.0, neginf=0.0)
         alpha_f32 = alpha_f32.clamp(min=1e-4, max=1.0 - 1e-4)
 
@@ -1308,8 +1308,8 @@ class RCOT_Alpha_Coupled_Mixing_Module(RCOT_Base_Projected_Mixer):
         return mixed_hidden_states, module_log
 
 
-@register_rcot_mixing_module("exponential_rotational_gated")
-class RCOT_Exponential_Rotational_Gated_Mixing_Module(RCOT_Mixing_Module):
+@register_t2mlr_mixing_module("exponential_rotational_gated")
+class T2MLR_Exponential_Rotational_Gated_Mixing_Module(T2MLR_Mixing_Module):
     """
     Exponential Rotational Gating mechanism:
     
@@ -1440,8 +1440,8 @@ class RCOT_Exponential_Rotational_Gated_Mixing_Module(RCOT_Mixing_Module):
 
 
 # NOTE: Disabled per request (commented out): two-stage gate.
-# @register_rcot_mixing_module("two_stage")
-# class RCOT_TwoStage_Mixing_Module(RCOT_Base_Projected_Mixer):
+# @register_t2mlr_mixing_module("two_stage")
+# class T2MLR_TwoStage_Mixing_Module(T2MLR_Base_Projected_Mixer):
 #     """
 #     Two-stage gate mixing module.
     
@@ -1666,7 +1666,7 @@ class RCOT_Exponential_Rotational_Gated_Mixing_Module(RCOT_Mixing_Module):
 #         bsz, seqlen = full_hidden_states.shape[0], full_hidden_states.shape[1]
         
 #         # Effective recurrent/input gates for unified logging/curriculum.
-#         # RCOT_TwoStage implements out = (1 - m*g)*input + (m*g)*recurrent.
+#         # T2MLR_TwoStage implements out = (1 - m*g)*input + (m*g)*recurrent.
 #         recurrent_gate = m_gate * g_gate
 #         input_gate = 1.0 - recurrent_gate
 
@@ -1694,8 +1694,8 @@ class RCOT_Exponential_Rotational_Gated_Mixing_Module(RCOT_Mixing_Module):
 # import torch.nn as nn
 
 # NOTE: Disabled per request (commented out): attention-based mixing gate.
-# @register_rcot_mixing_module("two_source_attn_mix_rezero")
-# class RCOT_TwoSource_Attn_Mix_ReZero_Mixing_Module(RCOT_Mixing_Module):
+# @register_t2mlr_mixing_module("two_source_attn_mix_rezero")
+# class T2MLR_TwoSource_Attn_Mix_ReZero_Mixing_Module(T2MLR_Mixing_Module):
 #     """
 #     Variant 1: 2-source softmax mixing across SOURCES (x vs r), multi-head.
 
@@ -1942,8 +1942,8 @@ class RCOT_Exponential_Rotational_Gated_Mixing_Module(RCOT_Mixing_Module):
 # Baseline mixing modules (CODI, Coconut, etc.)
 #----------------------------------------------------------#
 
-@register_rcot_mixing_module("baseline_coconut")
-class RCOT_Coconut_Mixing_Module(RCOT_Mixing_Module):
+@register_t2mlr_mixing_module("baseline_coconut")
+class T2MLR_Coconut_Mixing_Module(T2MLR_Mixing_Module):
     """Full mixing - passes through recurrent cache unchanged."""
     CONFIG_KEYS: List[str] = []
 
@@ -1960,8 +1960,8 @@ class RCOT_Coconut_Mixing_Module(RCOT_Mixing_Module):
         mixed_hidden_states = self._apply_post_norm(mixed_hidden_states)
         return mixed_hidden_states, None
 
-@register_rcot_mixing_module("baseline_codi")
-class RCOT_CODI_Mixing_Module(RCOT_Mixing_Module):
+@register_t2mlr_mixing_module("baseline_codi")
+class T2MLR_CODI_Mixing_Module(T2MLR_Mixing_Module):
     """Output projected recurrent cache only"""
     CONFIG_KEYS: List[str] = ["hidden_size", "bottleneck_size", "activation_cls", "dtype"]
 

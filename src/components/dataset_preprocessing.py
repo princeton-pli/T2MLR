@@ -91,7 +91,7 @@ def apply_custom_ctrl_flow_tokenization(
     num_proc: Optional[int] = None,
     **override_kwargs,
 ) -> Dataset:
-    name = getattr(data_args, "custom_ctrl_flow_tokenization", "rcot")
+    name = getattr(data_args, "custom_ctrl_flow_tokenization", "t2mlr")
     if not name or name.lower() == "none":
         return dataset
 
@@ -118,8 +118,8 @@ def apply_custom_ctrl_flow_tokenization(
     )
 
 
-@register_ctrl_flow_tokenizer("rcot")
-class RCOTCtrlFlowTokenizer(CustomCtrlFlowTokenizer):
+@register_ctrl_flow_tokenizer("t2mlr")
+class T2MLRCtrlFlowTokenizer(CustomCtrlFlowTokenizer):
     def build_preprocess_fn(
         self,
         tokenizer: PreTrainedTokenizer,
@@ -302,5 +302,5 @@ __all__ = [
     "build_truncate_fn",
     "register_ctrl_flow_tokenizer",
     "CustomCtrlFlowTokenizer",
-    "RCOTCtrlFlowTokenizer",
+    "T2MLRCtrlFlowTokenizer",
 ]

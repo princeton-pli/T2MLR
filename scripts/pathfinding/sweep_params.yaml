@@ -1,14 +1,14 @@
 runs:
-  - RUN_TAG: "pathfinding_rcot_off"
+  - RUN_TAG: "pathfinding_t2mlr_off"
     MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     FROM_PRETRAINED: "True"
-    RCOT_ENABLED: "False"
+    T2MLR_ENABLED: "False"
 
-  - RUN_TAG: "pathfinding_rcot_on_l2"
+  - RUN_TAG: "pathfinding_t2mlr_on_l2"
     MODEL_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     TOKENIZER_NAME_OR_PATH: "HuggingFaceTB/SmolLM2-135M"
     FROM_PRETRAINED: "True"
-    RCOT_ENABLED: "True"
+    T2MLR_ENABLED: "True"
     L_START: 2
     RECURRENT_RESIDUAL_TO_RECURRENT_CACHE: "True"

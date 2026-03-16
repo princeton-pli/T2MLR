@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate the variable-assignment dataset used by the RCOT variable-assignment task.
+Generate the variable-assignment dataset used by the T2MLR variable-assignment task.
 
 Each example contains:
 - `input`: prompt text

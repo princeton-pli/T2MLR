@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
-from .rcot_gate_zoo import RCOT_Mixing_Module
+from .t2mlr_gate_zoo import T2MLR_Mixing_Module
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,11 @@ class BlockWrapper(nn.Module):
     def __init__(
         self,
         model: nn.Module,
-        rcot_mixing_module: RCOT_Mixing_Module,
+        t2mlr_mixing_module: T2MLR_Mixing_Module,
     ):
         super().__init__()
         self.model = model
-        self.rcot_mixing_module = rcot_mixing_module
+        self.t2mlr_mixing_module = t2mlr_mixing_module
         self.recurrent_cache = None
         self.control_flow = None
         self.mixing_module_log_buffer = None
@@ -71,15 +71,15 @@ class BlockWrapper(nn.Module):
             stats = stats.detach().float().cpu().numpy()
             self.mixing_module_log_buffer[key].append(stats)
 
-    def apply_rcot_mixing(self, hidden_states):
-        assert self.control_flow is not None, "Control flow must be provided when applying RCOT mixing module."
+    def apply_t2mlr_mixing(self, hidden_states):
+        assert self.control_flow is not None, "Control flow must be provided when applying T2MLR mixing module."
         control_flow = self.control_flow.to(hidden_states.device).unsqueeze(-1)
         recurrent_cache = self.recurrent_cache.to(hidden_states.device)
 
         assert recurrent_cache.shape == hidden_states.shape
         assert control_flow.shape[:2] == hidden_states.shape[:2], f"Control flow and hidden states must have the same shape, got {control_flow.shape[:2]} and {hidden_states.shape[:2]}"
 
-        mixed_states, mixing_module_log = self.rcot_mixing_module(hidden_states, recurrent_cache)
+        mixed_states, mixing_module_log = self.t2mlr_mixing_module(hidden_states, recurrent_cache)
         # Optional: log hidden-state norms through the same gating buffer mechanism.
         # This is intentionally shape-compatible with `update_gating_buffer()` and can be aggregated
         # by the same trainer logging code.
@@ -104,8 +104,8 @@ class BlockWrapper(nn.Module):
     def forward(self, hidden_states, *args, **kwargs):
         # print(f"Hidden states shape: {hidden_states.shape}")
         if self.recurrent_cache is not None:
-            # print(f"Applying RCOT mixing to hidden states: {hidden_states.shape}")
-            hidden_states = self.apply_rcot_mixing(hidden_states)
+            # print(f"Applying T2MLR mixing to hidden states: {hidden_states.shape}")
+            hidden_states = self.apply_t2mlr_mixing(hidden_states)
         
         # Hidden states are already on the correct device from the model's forward pass
         # No need to call .to() which would iterate through all parameters
@@ -115,7 +115,7 @@ class BlockWrapper(nn.Module):
 
 def apply_block_wrapper(
     model,
-    rcot_mixing_module: RCOT_Mixing_Module,
+    t2mlr_mixing_module: T2MLR_Mixing_Module,
     l_start: int = 0,
 ):
     """Wrap the transformer block at l_start with BlockWrapper.
@@ -127,7 +127,7 @@ def apply_block_wrapper(
     
     Args:
         model: The transformer model to wrap.
-        rcot_mixing_module: Pre-constructed mixing module instance.
+        t2mlr_mixing_module: Pre-constructed mixing module instance.
         l_start: Layer index to wrap.
     
     Returns:
@@ -152,5 +152,5 @@ def apply_block_wrapper(
     logger.debug("Applying block wrapper to layer %d (l_start)", l_start)
     assert not isinstance(layer, BlockWrapper), f"Layer {l_start} is already a BlockWrapper"
 
-    layers[l_start] = BlockWrapper(layer, rcot_mixing_module)
+    layers[l_start] = BlockWrapper(layer, t2mlr_mixing_module)
     return model

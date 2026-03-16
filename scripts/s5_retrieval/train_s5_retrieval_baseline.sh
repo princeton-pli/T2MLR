@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Baseline (RCOT disabled) training for S5 retrieval.
+# Baseline (T2MLR disabled) training for S5 retrieval.
 # Prompt: dict prefix + actions; Target: values only (one char per action/state).
 
 set -euo pipefail
@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 # -----------------------------
 # Configuration
 # -----------------------------
-RCOT_ENABLED=False
+T2MLR_ENABLED=False
 MODEL_NAME_OR_PATH="tinyllama"
 TOKENIZER_NAME_OR_PATH="s5_char"
 OUTPUT_BASE="$REPO_ROOT/outputs"
@@ -63,8 +63,8 @@ if [ ! -f "$EVAL_DATA_PATH" ]; then
     EVAL_DATA_PATH="$TRAIN_DATA_PATH"
 fi
 
-RCOT_TAG="rcot_off"
-RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${RCOT_TAG}"
+T2MLR_TAG="t2mlr_off"
+RUN_NAME="${MODEL_SLUG}_${DATASET_SLUG}_${T2MLR_TAG}"
 OUTPUT_DIR="$OUTPUT_BASE/$RUN_NAME"
 LOG_FILE="$OUTPUT_DIR/train.log"
 
@@ -114,12 +114,12 @@ PYTHONUNBUFFERED=1 stdbuf -oL -eL python "$REPO_ROOT/src/train.py" \
     --save_strategy "epoch" \
     --seed "$SEED" \
     --bf16 True \
-    --project_name "rcot_s5_retrieval" \
+    --project_name "t2mlr_s5_retrieval" \
     --disable_tqdm False \
     --save_only_model True \
     --concat_response_to_input False \
     --label_shift 0 \
-    --rcot_enabled $RCOT_ENABLED \
+    --t2mlr_enabled $T2MLR_ENABLED \
     --prompt_column "input" \
     --response_column "target" \
     --reward_mode "exact" \

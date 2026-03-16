@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import Trainer, PreTrainedModel
 from typing import Dict, Any, Optional, Union, Callable, Tuple
-from components.all_arguments import TrainingArguments, RCOTArguments, DataArguments
+from components.all_arguments import TrainingArguments, T2MLRArguments, DataArguments
 from transformers.trainer import TRAINER_STATE_NAME
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.trainer_pt_utils import LengthGroupedSampler, RandomSampler
@@ -43,11 +43,11 @@ logger = logging.getLogger(__name__)
 
 def is_boosted_param_name(name: str) -> bool:
     """
-    Return True if a parameter name belongs to RCOT wrapper gates or adapter projection.
+    Return True if a parameter name belongs to T2MLR wrapper gates or adapter projection.
 
     We intentionally exclude base-model MLP gates (e.g., "*.mlp.gate_proj.*").
     
-    Matches ALL parameters under rcot_mixing_module to ensure all gate types are covered:
+    Matches ALL parameters under t2mlr_mixing_module to ensure all gate types are covered:
     - Gate projections: recurrent_gate_proj, input_gate_proj, alpha_gate_proj, erg_r_proj, erg_i_proj
     - ReZero parameters: rezero_gamma, gamma
     - Attention projections: Wq, Wk, Wv, Wv_x, Wv_r, Wo
@@ -57,8 +57,8 @@ def is_boosted_param_name(name: str) -> bool:
     if '.mlp.gate_proj.' in name:
         return False
     
-    # Match ALL parameters under rcot_mixing_module (covers all gate types in the zoo)
-    if '.rcot_mixing_module.' in name:
+    # Match ALL parameters under t2mlr_mixing_module (covers all gate types in the zoo)
+    if '.t2mlr_mixing_module.' in name:
         return True
     
     # Also match legacy patterns for backward compatibility
@@ -94,16 +94,16 @@ def _is_weight_decay_excluded(name: str, patterns: list[str]) -> bool:
             return True
     return False
 
-class RCOTTrainer(Trainer):
+class T2MLRTrainer(Trainer):
     """
     Custom trainer that supports control flow as part of the input during training.
     """
     
     def __init__(
         self,
-        model: PreTrainedModel, # A model of type RCOTWrapper
+        model: PreTrainedModel, # A model of type T2MLRWrapper
         training_args: TrainingArguments,
-        rcot_args: RCOTArguments,
+        t2mlr_args: T2MLRArguments,
         data_args: DataArguments,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -126,7 +126,7 @@ class RCOTTrainer(Trainer):
         
         # Only emit custom logs on rank 0 to avoid duplicate output
         self.verbose = self.is_world_process_zero()
-        self.rcot_args = rcot_args
+        self.t2mlr_args = t2mlr_args
         self.data_args = data_args
         self.train_data_collator = train_data_collator
         self.eval_data_collator = eval_data_collator
@@ -139,18 +139,18 @@ class RCOTTrainer(Trainer):
         self._bfad_last_step: int = -1  # Track last step to reset batch counter
         self._init_bfad_sampler()
         
-        # Log RCOT and data arguments
+        # Log T2MLR and data arguments
         if self.verbose:
             logger.info("=" * 50)
-            logger.info("RCOT Trainer Initialization")
+            logger.info("T2MLR Trainer Initialization")
             logger.info("=" * 50)
-            logger.info(f"RCOT Arguments: {rcot_args}")
+            logger.info(f"T2MLR Arguments: {t2mlr_args}")
             logger.info(f"Data Arguments: {data_args}")
             logger.info("=" * 50)
         
         # Initialize curriculum scheduler for recurrent_weight if enabled
         self.recurrent_weight_scheduler = None
-        if rcot_args.use_recurrent_weight_curriculum:
+        if t2mlr_args.use_recurrent_weight_curriculum:
             logger.info("Initializing recurrent_weight curriculum scheduler")
             
             # Calculate total training steps
@@ -164,18 +164,18 @@ class RCOTTrainer(Trainer):
                 total_steps = training_args.max_steps if training_args.max_steps > 0 else 1000
             
             # Determine warmup steps
-            warmup_steps = rcot_args.recurrent_weight_curriculum_warmup_steps
-            if warmup_steps is None and rcot_args.recurrent_weight_curriculum_warmup_ratio is not None:
-                warmup_steps = int(total_steps * rcot_args.recurrent_weight_curriculum_warmup_ratio)
+            warmup_steps = t2mlr_args.recurrent_weight_curriculum_warmup_steps
+            if warmup_steps is None and t2mlr_args.recurrent_weight_curriculum_warmup_ratio is not None:
+                warmup_steps = int(total_steps * t2mlr_args.recurrent_weight_curriculum_warmup_ratio)
             if warmup_steps is None:
                 warmup_steps = total_steps
             
             # Create scheduler
             self.recurrent_weight_scheduler = RecurrentWeightCurriculumScheduler(
-                start_value=rcot_args.recurrent_weight_curriculum_start,
-                end_value=rcot_args.recurrent_weight_curriculum_end,
+                start_value=t2mlr_args.recurrent_weight_curriculum_start,
+                end_value=t2mlr_args.recurrent_weight_curriculum_end,
                 total_steps=total_steps,
-                schedule=rcot_args.recurrent_weight_curriculum_schedule,
+                schedule=t2mlr_args.recurrent_weight_curriculum_schedule,
                 warmup_steps=warmup_steps,
             )
             
@@ -232,7 +232,7 @@ class RCOTTrainer(Trainer):
 
     def _init_bfad_sampler(self) -> None:
         """
-        Parse rcot_args.batch_forward_approximate_depth_values into a list of candidate depths.
+        Parse t2mlr_args.batch_forward_approximate_depth_values into a list of candidate depths.
 
         We intentionally accept a simple string interface because HFArgumentParser handles strings
         robustly across bash scripts.
@@ -240,12 +240,12 @@ class RCOTTrainer(Trainer):
         When a single integer N is provided, samples are drawn from MIN..N, where MIN is 
         controlled by batch_forward_approximate_depth_min (defaults to 1).
         """
-        raw = getattr(self.rcot_args, "batch_forward_approximate_depth_values", None)
+        raw = getattr(self.t2mlr_args, "batch_forward_approximate_depth_values", None)
         if raw is None:
             return
         
         # Get the min value for range-based sampling (defaults to 1)
-        min_depth = int(getattr(self.rcot_args, "batch_forward_approximate_depth_min", 1) or 1)
+        min_depth = int(getattr(self.t2mlr_args, "batch_forward_approximate_depth_min", 1) or 1)
         if min_depth < 1:
             raise ValueError(f"batch_forward_approximate_depth_min must be >= 1, got {min_depth}")
         
@@ -305,7 +305,7 @@ class RCOTTrainer(Trainer):
         """Sample BFAD depth for a step (legacy per-step sampling)."""
         assert self._bfad_depth_values is not None and len(self._bfad_depth_values) > 0
 
-        sampling = str(getattr(self.rcot_args, "batch_forward_approximate_depth_sampling", "uniform") or "uniform").strip().lower()
+        sampling = str(getattr(self.t2mlr_args, "batch_forward_approximate_depth_sampling", "uniform") or "uniform").strip().lower()
         if sampling not in {"uniform"}:
             raise ValueError(f"Unsupported batch_forward_approximate_depth_sampling: {sampling}. Supported: 'uniform'.")
 
@@ -318,7 +318,7 @@ class RCOTTrainer(Trainer):
         """Sample BFAD depth for a batch (per-batch sampling)."""
         assert self._bfad_depth_values is not None and len(self._bfad_depth_values) > 0
 
-        sampling = str(getattr(self.rcot_args, "batch_forward_approximate_depth_sampling", "uniform") or "uniform").strip().lower()
+        sampling = str(getattr(self.t2mlr_args, "batch_forward_approximate_depth_sampling", "uniform") or "uniform").strip().lower()
         if sampling not in {"uniform"}:
             raise ValueError(f"Unsupported batch_forward_approximate_depth_sampling: {sampling}. Supported: 'uniform'.")
 
@@ -335,9 +335,9 @@ class RCOTTrainer(Trainer):
         and ReZero gamma parameters get a higher learning rate.
         """
         if self.optimizer is None:
-            gate_lr_multiplier = getattr(self.rcot_args, 'gate_lr_multiplier', None)
+            gate_lr_multiplier = getattr(self.t2mlr_args, 'gate_lr_multiplier', None)
             weight_decay_exclusions = _parse_weight_decay_exclusions(
-                getattr(self.rcot_args, "weight_decay_exclusions", None)
+                getattr(self.t2mlr_args, "weight_decay_exclusions", None)
             )
             if self.verbose and weight_decay_exclusions:
                 logger.info(f"Weight decay exclusions enabled: {weight_decay_exclusions}")
@@ -437,10 +437,10 @@ class RCOTTrainer(Trainer):
                             regular_no_decay_params.append(param)
                         continue
 
-                    # Identify ONLY RCOT wrapper gates and adapter params for LR boost
+                    # Identify ONLY T2MLR wrapper gates and adapter params for LR boost
                     # - Wrapper gates live under: *.recurrent_gate_proj.*, *.input_gate_proj.*, *.alpha_gate_proj.*
                     # - Adapter projection lives under: *.recurrent_projection.*
-                    # - ReZero gamma parameters: *.rcot_mixing_module.rezero_gamma, *.rcot_mixing_module.gamma
+                    # - ReZero gamma parameters: *.t2mlr_mixing_module.rezero_gamma, *.t2mlr_mixing_module.gamma
                     # Explicitly avoid base-model MLP gates like: *.mlp.gate_proj.*
                     if is_boosted_param_name(name):
                         gate_params.append(param)
@@ -492,7 +492,7 @@ class RCOTTrainer(Trainer):
     def get_decay_parameter_names(self, model):
         decay_parameters = super().get_decay_parameter_names(model)
         weight_decay_exclusions = _parse_weight_decay_exclusions(
-            getattr(self.rcot_args, "weight_decay_exclusions", None)
+            getattr(self.t2mlr_args, "weight_decay_exclusions", None)
         )
         if not weight_decay_exclusions:
             return decay_parameters
@@ -744,7 +744,7 @@ class RCOTTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         """
-        Loss computation for RCOT: uses the precomputed loss from RCOTWrapper when available,
+        Loss computation for T2MLR: uses the precomputed loss from T2MLRWrapper when available,
         which correctly handles token-by-token processing and batch size scaling. Falls back to
         recomputing from logits if the wrapper doesn't provide a loss.
         """
@@ -806,9 +806,9 @@ class RCOTTrainer(Trainer):
                 if hasattr(base_model, "active_gate_buffer"):
                     setattr(base_model, "active_gate_buffer", {})
 
-        if self.rcot_args.rcot_enabled:
-            assert control_flows is not None, "Control flows are required for RCOT training"
-            rcot_output = model(
+        if self.t2mlr_args.t2mlr_enabled:
+            assert control_flows is not None, "Control flows are required for T2MLR training"
+            t2mlr_output = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 control_flows=control_flows,
@@ -817,7 +817,7 @@ class RCOTTrainer(Trainer):
                 **fa_kwargs,
             )
         else:
-            rcot_output = model(
+            t2mlr_output = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
@@ -825,16 +825,16 @@ class RCOTTrainer(Trainer):
             )
 
         # Post-process and capture stats if we recorded them
-        if record_stats_this_step and self.rcot_args.rcot_enabled:
+        if record_stats_this_step and self.t2mlr_args.t2mlr_enabled:
             if self.verbose:
                 logger.debug(f"Capturing gate stats at step {getattr(self.state, 'global_step', 0)}")
             self._capture_stats_from_model(model, control_flows)
 
-        logits = rcot_output.logits
+        logits = t2mlr_output.logits
         
         # Check if model returned a precomputed loss (as a tensor, not dict or other types).
         # Note: Liger kernels with FSDP may return loss as a dict, so we must verify it's a tensor.
-        model_loss = getattr(rcot_output, 'loss', None)
+        model_loss = getattr(t2mlr_output, 'loss', None)
         if model_loss is not None and torch.is_tensor(model_loss):
             loss = model_loss
         else:
@@ -853,8 +853,8 @@ class RCOTTrainer(Trainer):
 
         outputs = {
             "logits": logits,
-            "past_key_values": rcot_output.past_key_values,
-            "hidden_states": rcot_output.hidden_states,
+            "past_key_values": t2mlr_output.past_key_values,
+            "hidden_states": t2mlr_output.hidden_states,
         }
         return loss, outputs
 
@@ -1022,7 +1022,7 @@ class RCOTTrainer(Trainer):
                                         arr.mean(axis=-1) if arr.ndim >= 3 else arr.reshape(arr.shape[0], -1)
                                     )
                                 # Prevent this (possibly post-processed ndarray) buffer from affecting the real eval pass below.
-                                # RCOTWrapper.forward() treats a non-None active_gate_buffer as an implicit record flag.
+                                # T2MLRWrapper.forward() treats a non-None active_gate_buffer as an implicit record flag.
                                 setattr(self.model, "active_gate_buffer", None)
 
                             loss, logits, labels = self.prediction_step(

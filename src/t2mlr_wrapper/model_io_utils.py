@@ -8,7 +8,7 @@ import json
 from typing import Dict, Any, Iterable, Tuple
 
 from modeling.tinyllama import TinyLlamaConfig, TinyLlamaForCausalLM
-from .rcot_config import RCOTConfig
+from .t2mlr_config import T2MLRConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,15 @@ def resolve_dtype(dtype):
     else:
         raise ValueError(f"Unknown dtype: {dtype}")
 
-def load_base_model_from_config(config: RCOTConfig):
+def load_base_model_from_config(config: T2MLRConfig):
 
     # Construct the base model from the saved base_config
     base_config_data = getattr(config, "base_config", None)
     base_model_type = getattr(config, "base_model_type", None)
     if base_config_data is None:
         raise ValueError(
-            "RCOTWrapper requires either a base model instance or a config containing `base_config`. "
-            "Use RCOTWrapper.from_pretrained_with_rcot or RCOTConfig.from_base_config to create a valid config."
+            "T2MLRWrapper requires either a base model instance or a config containing `base_config`. "
+            "Use T2MLRWrapper.from_pretrained_with_t2mlr or T2MLRConfig.from_base_config to create a valid config."
         )
 
     dtype = getattr(config, "dtype", None)
@@ -97,9 +97,9 @@ def load_base_model_from_config(config: RCOTConfig):
     return model
 
 
-def load_rcot_config_with_fallback(path: str) -> RCOTConfig:
+def load_t2mlr_config_with_fallback(path: str) -> T2MLRConfig:
     """
-    Resolve and load RCOTConfig from a checkpoint or directory.
+    Resolve and load T2MLRConfig from a checkpoint or directory.
     Handles common FSDP layout (config.json one level up) and last-checkpoint fallback.
     """
     resolved_path = path
@@ -121,8 +121,8 @@ def load_rcot_config_with_fallback(path: str) -> RCOTConfig:
             if last_ckpt is not None:
                 resolved_path = last_ckpt
 
-    rcot_config = RCOTConfig.from_pretrained(resolved_path)
-    return rcot_config
+    t2mlr_config = T2MLRConfig.from_pretrained(resolved_path)
+    return t2mlr_config
 
 def fetch_hidden_size(model):
     # Fetch the hidden size from the base model config
@@ -132,7 +132,7 @@ def fetch_hidden_size(model):
         or getattr(model.config, "d_model", None)
     )
     if hidden_size is None:
-        raise ValueError("Unable to infer hidden size from base configuration for RCOT wrapper.")
+        raise ValueError("Unable to infer hidden size from base configuration for T2MLR wrapper.")
     return hidden_size
 
 def load_weights_for_model(model: nn.Module, model_name_or_path: str, strict: bool = True):

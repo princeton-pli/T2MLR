@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=var-assign-rcot
+#SBATCH --job-name=var-assign-t2mlr
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=32G
 #SBATCH --gres=gpu:1
 #SBATCH --time=2:59:00
-#SBATCH --partition=pli-c
-#SBATCH --output=scripts/variable_assignment/slurm/var-assign-rcot-%j.out
-#SBATCH --error=scripts/variable_assignment/slurm/var-assign-rcot-%j.err
+
+#SBATCH --output=scripts/variable_assignment/slurm/var-assign-t2mlr-%j.out
+#SBATCH --error=scripts/variable_assignment/slurm/var-assign-t2mlr-%j.err
 
 set -euo pipefail
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
 export WANDB_MODE="${WANDB_MODE:-offline}"
-export WANDB_RUN_GROUP="${WANDB_RUN_GROUP:-variable_assignment_rcot}"
+export WANDB_RUN_GROUP="${WANDB_RUN_GROUP:-variable_assignment_t2mlr}"
 
 # ============================================================================
 # PATHS AND SETUP
@@ -111,12 +111,12 @@ TRAIN_DATASET_SPLIT="${TRAIN_DATASET_SPLIT:-train}"
 EVAL_DATASET_SPLIT="${EVAL_DATASET_SPLIT:-train}"
 
 # ============================================================================
-# RCOT FIXED PARAMETERS
+# T2MLR FIXED PARAMETERS
 # ============================================================================
 
 CONNECTION_DETACH="${CONNECTION_DETACH:-False}"
-RCOT_ENABLED="${RCOT_ENABLED:-True}"
-RCOT_MIXING_MODULE_NAME="${RCOT_MIXING_MODULE_NAME:-gated}"
+T2MLR_ENABLED="${T2MLR_ENABLED:-True}"
+T2MLR_MIXING_MODULE_NAME="${T2MLR_MIXING_MODULE_NAME:-gated}"
 GATE_PROJ_TYPE="${GATE_PROJ_TYPE:-linear}"
 GATE_MLP_HIDDEN_DIM="${GATE_MLP_HIDDEN_DIM:-}"
 GATE_MLP_NUM_LAYERS="${GATE_MLP_NUM_LAYERS:-2}"
@@ -152,8 +152,8 @@ PROJECTION_TAG=$([[ "$PROJECTION_BOOL" == "True" ]] && { [[ "$PROJECTION_DIM_CHO
 L_END=$((-L_START - 1))
 WINDOW_TAG="l${L_START}_to_${L_END}"
 
-RCOT_TAG=$([[ "$RCOT_ENABLED" == "True" ]] && echo "rcot_on" || echo "rcot_off")
-RUN_NAME_BASE_DEFAULT="variable_assignment_rcot"
+T2MLR_TAG=$([[ "$T2MLR_ENABLED" == "True" ]] && echo "t2mlr_on" || echo "t2mlr_off")
+RUN_NAME_BASE_DEFAULT="variable_assignment_t2mlr"
 RUN_NAME_BASE="${RUN_NAME_BASE:-$RUN_NAME_BASE_DEFAULT}"
 RUN_NAME_SUFFIX="${RUN_NAME_SUFFIX:-}"
 RUN_NAME="$RUN_NAME_BASE"
@@ -165,7 +165,7 @@ OUTPUT_DIR="$OUTPUT_BASE/$RUN_NAME"
 mkdir -p "$OUTPUT_DIR"
 
 # ============================================================================
-# OPTIONAL RCOT INITIALIZATION DEFAULTS
+# OPTIONAL T2MLR INITIALIZATION DEFAULTS
 # ============================================================================
 
 if [[ -z "$RECURRENT_GATE_INIT" ]]; then
@@ -228,11 +228,11 @@ PYTHON_COMMAND=(
     --save_steps "$SAVE_STEPS"
     --seed "$SEED"
     --bf16 True
-    --project_name rcot_variable_assignment
+    --project_name t2mlr_variable_assignment
     --disable_tqdm False
     --save_only_model True
-    --rcot_enabled "$RCOT_ENABLED"
-    --recurrent_mixing_module_name "$RCOT_MIXING_MODULE_NAME"
+    --t2mlr_enabled "$T2MLR_ENABLED"
+    --recurrent_mixing_module_name "$T2MLR_MIXING_MODULE_NAME"
     --l_start "$L_START"
     --l_end "$L_END"
     --recurrent_weight "$RECURRENT_WEIGHT"
@@ -290,11 +290,11 @@ fi
 [[ "$PROJECTION_BOOL" == "True" && "$PROJECTION_DIM_CHOICE" != "auto" ]] && PYTHON_COMMAND+=(--recurrent_projection_dim "$PROJECTION_DIM_CHOICE")
 
 echo "============================================================================"
-echo "[INFO] Variable Assignment RCOT Training"
+echo "[INFO] Variable Assignment T2MLR Training"
 echo "============================================================================"
 echo "[INFO] Run name: $RUN_NAME"
 echo "[INFO] Model: $MODEL_NAME_OR_PATH"
-echo "[INFO] RCOT: $RCOT_ENABLED (l_start=$L_START, l_end=$L_END)"
+echo "[INFO] T2MLR: $T2MLR_ENABLED (l_start=$L_START, l_end=$L_END)"
 echo "[INFO] Output: $OUTPUT_DIR"
 echo "============================================================================"
 

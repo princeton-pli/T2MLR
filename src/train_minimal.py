@@ -21,20 +21,20 @@ from components.all_arguments import (
     ModelArguments,
     TrainingArguments,
     DataArguments,
-    RCOTArguments,
+    T2MLRArguments,
     GenerationEvalArguments,
 )
-from components.data_utils import rcot_collator, RCOTPaddingFreeCollator
+from components.data_utils import t2mlr_collator, T2MLRPaddingFreeCollator
 from components.generation_eval import run_generation_evaluation
-from components.rcot_trainer import RCOTTrainer
+from components.t2mlr_trainer import T2MLRTrainer
 from components.dataset_preprocessing import (  # type: ignore
-    RCOTCtrlFlowTokenizer,
+    T2MLRCtrlFlowTokenizer,
     build_truncate_fn,
 )
 from components.custom_dataset_preprocessing import apply_custom_preprocessing  # pyright: ignore[reportMissingImports]
 from components.custom_dataset_postprocessing import apply_custom_postprocessing  # pyright: ignore[reportMissingImports]
-from components.rcot_utils import visualize_sample_control_flow  # pyright: ignore[reportMissingImports]
-from rcot_wrapper import RCOTWrapper
+from components.t2mlr_utils import visualize_sample_control_flow  # pyright: ignore[reportMissingImports]
+from t2mlr_wrapper import T2MLRWrapper
 
 
 logging.basicConfig(level=logging.INFO)
@@ -115,13 +115,13 @@ class WandbConfigUploadCallback(TrainerCallback):
         training_args: TrainingArguments,
         model_args: ModelArguments,
         data_args: DataArguments,
-        rcot_args: RCOTArguments,
+        t2mlr_args: T2MLRArguments,
         eval_args: GenerationEvalArguments,
     ):
         self.training_args = training_args
         self.model_args = model_args
         self.data_args = data_args
-        self.rcot_args = rcot_args
+        self.t2mlr_args = t2mlr_args
         self.eval_args = eval_args
         self.config_uploaded = False
     
@@ -144,7 +144,7 @@ class WandbConfigUploadCallback(TrainerCallback):
             "training": getattr(self.training_args, "to_dict", lambda: asdict(self.training_args))(),
             "model": asdict(self.model_args),
             "data": asdict(self.data_args),
-            "rcot": asdict(self.rcot_args),
+            "t2mlr": asdict(self.t2mlr_args),
             "eval": asdict(self.eval_args),
         }
         
@@ -263,11 +263,11 @@ def _build_pause_token_config(tokenizer: PreTrainedTokenizer, data_args: DataArg
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, TrainingArguments, DataArguments, RCOTArguments, GenerationEvalArguments)
+        (ModelArguments, TrainingArguments, DataArguments, T2MLRArguments, GenerationEvalArguments)
     )
-    model_args, training_args, data_args, rcot_args, eval_args = parser.parse_args_into_dataclasses()
+    model_args, training_args, data_args, t2mlr_args, eval_args = parser.parse_args_into_dataclasses()
     # Liger is optional; if enabled we import it and later apply it to the *base* model
-    # (before RCOT wrapping) so dispatch sees the underlying transformer `model_type`.
+    # (before T2MLR wrapping) so dispatch sees the underlying transformer `model_type`.
     liger_requested = bool(getattr(training_args, "use_liger_kernel", False))
     liger_enabled = False
     if liger_requested:
@@ -319,19 +319,19 @@ def main():
     pause_token_cfg = _build_pause_token_config(tokenizer, data_args, model_args)
 
     if getattr(data_args, "padding_free", False):
-        train_collator = RCOTPaddingFreeCollator(
+        train_collator = T2MLRPaddingFreeCollator(
             return_flash_attn_kwargs=bool(getattr(data_args, "padding_free_return_flash_attn_kwargs", True)),
             **(pause_token_cfg or {}),
         )
     else:
-        train_collator = rcot_collator(tokenizer, rcot_args, **(pause_token_cfg or {}))
+        train_collator = t2mlr_collator(tokenizer, t2mlr_args, **(pause_token_cfg or {}))
     # For decoder-only generation, left-padding is required for correct results when prompts
     # are padded to a common length during evaluation/inference.
     # Skip get_labels_from_control_flow for eval data since labels are pre-set during preprocessing
-    eval_collator = rcot_collator(tokenizer, rcot_args, pad_prompt_left=True, skip_labels_from_control_flow=True)
+    eval_collator = t2mlr_collator(tokenizer, t2mlr_args, pad_prompt_left=True, skip_labels_from_control_flow=True)
 
     torch_dtype = torch.bfloat16 if getattr(training_args, "bf16", False) else None
-    # Try RCOT checkpoint first; fall back to base HF model when not RCOT.
+    # Try T2MLR checkpoint first; fall back to base HF model when not T2MLR.
     model = None
     resume_checkpoint_path = _resolve_resume_checkpoint_path(training_args)
     should_resume_from_checkpoint = resume_checkpoint_path is not None
@@ -347,24 +347,24 @@ def main():
     if getattr(model_args, "from_pretrained", True):
         # Load pretrained weights from model_name_or_path (resolved to latest checkpoint
         # automatically when a run directory is provided).
-        def _load_pretrained_or_rcot(load_path: str):
+        def _load_pretrained_or_t2mlr(load_path: str):
             try:
-                loaded = RCOTWrapper.from_pretrained_with_rcot(
+                loaded = T2MLRWrapper.from_pretrained_with_t2mlr(
                     load_path,
                     dtype=torch_dtype,
                     attn_impl=attn_impl,
                 )
-                logger.info("Loaded RCOT checkpoint with RCOTWrapper from: %s", load_path)
+                logger.info("Loaded T2MLR checkpoint with T2MLRWrapper from: %s", load_path)
                 return loaded
             except Exception as e:
-                logger.info("RCOT load failed for %s, falling back to base model load. (%s)", load_path, e)
+                logger.info("T2MLR load failed for %s, falling back to base model load. (%s)", load_path, e)
                 return AutoModelForCausalLM.from_pretrained(
                     load_path,
                     torch_dtype=torch_dtype,
                     attn_implementation=attn_impl,
                 )
 
-        model = _load_pretrained_or_rcot(model_path)
+        model = _load_pretrained_or_t2mlr(model_path)
     else:
         # Initialize from config only (random weights for training from scratch)
         logger.info("Initializing model from config (from_pretrained=False)")
@@ -412,7 +412,7 @@ def main():
             if attn_impl:
                 config._attn_implementation = attn_impl
             model = AutoModelForCausalLM.from_config(config, torch_dtype=torch_dtype)
-    # Apply Liger kernels to the underlying HF model instance (not the RCOT wrapper).
+    # Apply Liger kernels to the underlying HF model instance (not the T2MLR wrapper).
     if liger_enabled:
         try:
             # This liger_kernel version does not export `apply_liger_kernel_to_instance`.
@@ -435,11 +435,11 @@ def main():
         logger.warning("Could not set attn_impl on base model config; continuing without it.")
     tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # If model is already RCOT-wrapped, keep as is; otherwise wrap.
-    if isinstance(model, RCOTWrapper):
-        rcot_model = model
+    # If model is already T2MLR-wrapped, keep as is; otherwise wrap.
+    if isinstance(model, T2MLRWrapper):
+        t2mlr_model = model
     else:
-        rcot_model = RCOTWrapper.from_base_model(model, rcot_args)
+        t2mlr_model = T2MLRWrapper.from_base_model(model, t2mlr_args)
 
     if data_args.max_length is not None and data_args.max_length <= 0:
         raise ValueError("`max_length` must be a positive integer when provided.")
@@ -447,7 +447,7 @@ def main():
 
     control_flow_all_recurrent = bool(getattr(data_args, "control_flow_all_recurrent", False))
     control_flow_split_answer = bool(getattr(data_args, "control_flow_split_answer", False))
-    preprocess_train = RCOTCtrlFlowTokenizer().build_preprocess_fn(
+    preprocess_train = T2MLRCtrlFlowTokenizer().build_preprocess_fn(
         tokenizer,
         eval_args,
         prompt_only=False,
@@ -455,7 +455,7 @@ def main():
         label_mask_prompt=bool(getattr(data_args, "label_mask_prompt", False)),
         control_flow_split_answer=control_flow_split_answer,
     )
-    preprocess_eval = RCOTCtrlFlowTokenizer().build_preprocess_fn(
+    preprocess_eval = T2MLRCtrlFlowTokenizer().build_preprocess_fn(
         tokenizer,
         eval_args,
         prompt_only=True,
@@ -564,15 +564,15 @@ def main():
                 training_args=training_args,
                 model_args=model_args,
                 data_args=data_args,
-                rcot_args=rcot_args,
+                t2mlr_args=t2mlr_args,
                 eval_args=eval_args,
             )
         )
     
-    trainer = RCOTTrainer(
-        model=rcot_model,
+    trainer = T2MLRTrainer(
+        model=t2mlr_model,
         training_args=training_args,
-        rcot_args=rcot_args,
+        t2mlr_args=t2mlr_args,
         data_args=data_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
@@ -601,7 +601,7 @@ def main():
 
     # Try loading back the model from the checkpoint
     logger.info("Testing loading back the model from the checkpoint")
-    # rcot_model = RCOTWrapper.from_pretrained_with_rcot(training_args.output_dir)
+    # t2mlr_model = T2MLRWrapper.from_pretrained_with_t2mlr(training_args.output_dir)
     
     if training_args.do_eval and eval_dataset is not None:
         logger.info("Running generation evaluation")
@@ -609,7 +609,7 @@ def main():
             trainer=trainer,
             tokenizer=tokenizer,
             eval_dataset=eval_dataset,
-            rcot_args=rcot_args,
+            t2mlr_args=t2mlr_args,
             eval_args=eval_args,
             training_args=training_args,
             model_args=model_args,
