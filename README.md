@@ -10,6 +10,8 @@
 </div>
 </div>
 
+---
+
 We introduce Transformers with Temporal Middle-Layer Recurrence (T2MLR), a generalized Transformer architecture that integrates attention and recurrence by routing a lightweight temporal pathway through the middle layers. Motivated by latent-reasoning and looped-Transformer lines of work, T2MLR injects intermediate representations from deeper layers of the previous token into earlier layers of the current token via a gated recurrent pathway, enabling iterative latent computation while preserving dense, token-level supervision.
 
 Across natural-language pretraining and multi-hop reasoning finetuning, T2MLR consistently outperforms parameter-matched Transformer baselines at the same inference compute. Moreover, we find that looping only a middle-layer block (as little as 20% of all layers) often outperforms full-layer looping. This offers a new perspective on latent reasoning in Transformers: effective iterative refinement does not necessarily require full-stack recurrence. It can instead be achieved more effectively through targeted middle-layer recurrence.
@@ -57,7 +59,7 @@ Core entrypoints:
 
 - `src/train.py`: general training entrypoint for pretraining and retrieval-style experiments.
 - `src/train_minimal.py`: lightweight supervised finetuning entrypoint for GSM8K, pathfinding, ProsQA, and variable assignment.
-- `src/train_ftp.py`: Medusa multi-head training entrypoint.
+- `src/train_ftp.py`: Future token prediction training entrypoint.
 - `src/t2mlr_wrapper/`: T2MLR/T2MLR model wrapper and recurrence components.
 - `src/components/`: shared training, evaluation, preprocessing, and argument utilities.
 - `scripts/<task>/train_*.sh`: runnable examples for each task.
@@ -94,7 +96,7 @@ The surrounding files in `src/t2mlr_wrapper/` separate these concerns:
 In the released tasks, the mapping is:
 
 - FineWeb pretraining, GSM8K, Pathfinding, ProsQA, Variable Assignment, and S5 retrieval training all enable `batch_approximate_forward()` through their shell scripts.
-- Medusa training also forces the T2MLR backbone into `batch_approximate_forward()` during its forward pass so multi-head training stays parallel.
+- FTP training also forces the T2MLR backbone into `batch_approximate_forward()` during its forward pass so multi-head training stays parallel.
 - Generation-style evaluation uses `simple_recurrent_forward()` through `generate()`, with automatic or manual `control_flows`.
 - Exact recurrent evaluation or analysis of multi-token inputs uses `exact_sequence_recurrent_forward()` when batch-forward mode is disabled.
 
@@ -118,19 +120,19 @@ Optional packages:
 
 | Task | Script directory | Notes |
 | --- | --- | --- |
+| S5 retrieval | `scripts/s5_retrieval/` | Includes retrieval dataset generation and baseline scripts |
 | FineWeb pretraining | `scripts/fineweb/` | Uses the general trainer in `src/train.py` |
 | GSM8K | `scripts/gsm8k/` | SFT-style setup via `src/train_minimal.py` |
-| Medusa | `scripts/ftp/` | Uses `src/train_ftp.py` |
-| Pathfinding | `scripts/pathfinding/` | Includes a local dataset generator |
 | ProsQA | `scripts/prosqa/` | Expects local train/eval data unless overridden |
-| S5 retrieval | `scripts/s5_retrieval/` | Includes retrieval dataset generation and baseline scripts |
 | Variable assignment | `scripts/variable_assignment/` | Includes a local dataset generator |
+| Pathfinding | `scripts/pathfinding/` | Includes a local dataset generator |
+| Future-Token Prediction | `scripts/ftp/` | Uses `src/train_ftp.py` |
 
 ## Data Preparation
 
 Dataset handling differs by task:
 
-- FineWeb and Medusa default to Hugging Face-hosted data or externally configured sources.
+- FineWeb pretraining default to Hugging Face-hosted data or externally configured sources.
 - GSM8K defaults to `whynlp/gsm8k-aug`.
 - Pathfinding, ProsQA, and variable assignment expect local files under `data/` by default.
 - S5 retrieval expects generated JSONL files under `data/<dataset_tag>/`.
