@@ -28,7 +28,7 @@ In particular, we include the necessary scripts to conduct training for:
 - ProsQA (Section 4.2)
 - Variable assignment (Section 4.2)
 - GSM8K (Section 4.3)
-- Medusa head training (Section 4.2)
+- Future Token Prediction training (Section B)
 
 This release is intentionally trimmed down for public use. It does not include internal experiment logs, model caches, visualization notebooks, historical task folders, or the full test suite from the original `T2MLR_Training` workspace.
 
