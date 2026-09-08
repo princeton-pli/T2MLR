@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-TBC-b31b1b.svg?style=flat)]()
+[![arXiv](https://img.shields.io/badge/arXiv-TBC-b31b1b.svg?style=flat)](https://arxiv.org/pdf/2607.15178)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Email me](https://img.shields.io/badge/Contact-6fcf97?logo=gmail)](mailto:xingyu.zhu@princeton.com)
 <div>
